@@ -308,14 +308,25 @@ export default {
       const session = await getSession(request); // getSession is async
 
       if (!session) {
-        // If no session and not a public path, redirect to login
-        console.log(`No session for path ${url.pathname}, redirecting to login.`);
-        return new Response(null, {
-          status: 302, // Temporary redirect
-          headers: {
-            'Location': `${url.origin}/auth/github`, // Redirect to login page
-          },
-        });
+        const acceptHeader = request.headers.get('Accept');
+        const isApiRequest = acceptHeader?.includes('application/json') ||
+                             request.headers.get('X-Requested-With') === 'XMLHttpRequest';
+
+        if (isApiRequest) {
+          console.log(`No session for API path ${url.pathname}, returning 401.`);
+          return new Response(JSON.stringify({ error: 'Not authenticated. Please log in.' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        } else {
+          console.log(`No session for path ${url.pathname}, redirecting to login.`);
+          return new Response(null, {
+            status: 302,
+            headers: {
+              'Location': `${url.origin}/auth/github`,
+            },
+          });
+        }
       }
 
       // If there is a session, you could potentially enrich the request or env for the DO
