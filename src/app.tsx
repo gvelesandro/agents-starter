@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, use } from "react";
+import React, { useEffect, useState, useRef, useCallback, use } from "react"; // Added React import
 import { useAgent } from "agents/react";
 import { useAgentChat } from "agents/ai-react";
 import type { Message } from "@ai-sdk/react";
@@ -29,6 +29,12 @@ const toolsRequiringConfirmation: (keyof typeof tools)[] = [
   "getWeatherInformation",
 ];
 
+// Define a type for the user data
+interface User {
+  username: string;
+  userId: string;
+}
+
 export default function Chat() {
   const [theme, setTheme] = useState<"dark" | "light">(() => {
     // Check localStorage first, default to dark if not found
@@ -38,6 +44,34 @@ export default function Chat() {
   const [showDebug, setShowDebug] = useState(false);
   const [textareaHeight, setTextareaHeight] = useState("auto");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isLoadingUser, setIsLoadingUser] = useState(true);
+
+  useEffect(() => {
+    // Fetch user data when the component mounts
+    fetch('/auth/me')
+      .then(res => {
+        if (res.ok) {
+          return res.json();
+        }
+        if (res.status === 401) { // Not authenticated
+          setCurrentUser(null);
+        }
+        return null; // Or throw an error
+      })
+      .then(data => {
+        if (data && data.username) {
+          setCurrentUser(data);
+        }
+      })
+      .catch(error => {
+        console.error('Error fetching user:', error);
+        setCurrentUser(null);
+      })
+      .finally(() => {
+        setIsLoadingUser(false);
+      });
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -108,8 +142,31 @@ export default function Chat() {
   return (
     <div className="h-[100vh] w-full p-4 flex justify-center items-center bg-fixed overflow-hidden">
       <HasOpenAIKey />
+      {/* Adjusted main container to flex-col to accommodate header */}
       <div className="h-[calc(100vh-2rem)] w-full mx-auto max-w-lg flex flex-col shadow-xl rounded-md overflow-hidden relative border border-neutral-300 dark:border-neutral-800">
-        <div className="px-4 py-3 border-b border-neutral-300 dark:border-neutral-800 flex items-center gap-3 sticky top-0 z-10">
+        {/* Header or Navigation Bar */}
+        <header className="p-4 border-b border-neutral-300 dark:border-neutral-800 flex justify-between items-center sticky top-0 z-20 bg-background dark:bg-neutral-950">
+          <h1 className="text-xl font-semibold">Chat Agent</h1>
+          <div>
+            {isLoadingUser ? (
+              <p className="text-sm">Loading user...</p>
+            ) : currentUser ? (
+              <div className="flex items-center gap-4">
+                <span className="text-sm">Welcome, {currentUser.username}!</span>
+                <a href="/auth/logout" className="px-3 py-1.5 text-sm bg-red-500 text-white rounded hover:bg-red-600">
+                  Logout
+                </a>
+              </div>
+            ) : (
+              <a href="/auth/github" className="px-3 py-1.5 text-sm bg-blue-500 text-white rounded hover:bg-blue-600">
+                Login with GitHub
+              </a>
+            )}
+          </div>
+        </header>
+
+        {/* Existing top bar for controls - ensuring it's still sticky if needed, or part of overall scroll */}
+        <div className="px-4 py-3 border-b border-neutral-300 dark:border-neutral-800 flex items-center gap-3 sticky top-[calc(3.5rem+1px)] z-10 bg-background dark:bg-neutral-900"> {/* Adjusted sticky top value if header is fixed height */}
           <div className="flex items-center justify-center h-8 w-8">
             <svg
               width="28px"
@@ -163,8 +220,14 @@ export default function Chat() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 max-h-[calc(100vh-10rem)]">
+        {/* Adjusted max-h for messages area to account for new header and existing top bar */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 max-h-[calc(100vh-10rem-3.5rem-1px)]">
           {agentMessages.length === 0 && (
+            // Conditionally render welcome message or a login prompt if preferred
+            // For now, existing behavior: show welcome if messages array is empty.
+            // If !currentUser, this part of UI might be hidden or show a "Please login" message by server redirect.
+            // If a user logs out, this component might re-render or page reloads.
+            // If page reloads, server middleware handles redirect. If currentUser becomes null client-side, UI updates.
             <div className="h-full flex items-center justify-center">
               <Card className="p-6 max-w-md mx-auto bg-neutral-100 dark:bg-neutral-900">
                 <div className="text-center space-y-4">
@@ -315,7 +378,7 @@ export default function Chat() {
           <div className="flex items-center gap-2">
             <div className="flex-1 relative">
               <Textarea
-                disabled={pendingToolCallConfirmation}
+                disabled={pendingToolCallConfirmation || (!currentUser && !isLoadingUser)} // Disable input if not logged in
                 placeholder={
                   pendingToolCallConfirmation
                     ? "Please respond to the tool confirmation above..."
