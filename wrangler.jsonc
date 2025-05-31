@@ -9,6 +9,12 @@
   "assets": {
     "directory": "public",
   },
+  "kv_namespaces": [
+    {
+      "binding": "CHAT_HISTORY_KV",
+      "id": "<Add-KV-ID>"
+    }
+  ],
   "durable_objects": {
     "bindings": [
       {
@@ -20,7 +26,9 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["Chat"],
+      "new_sqlite_classes": [
+        "Chat"
+      ],
     },
   ],
 }
