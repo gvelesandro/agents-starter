@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(rg:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(npm run dev:*)",
+      "Bash(npm test)",
+      "Bash(git add:*)"
     ]
   },
   "enableAllProjectMcpServers": false
