@@ -37,12 +37,42 @@ interface User {
 
 // ChatInterface component to encapsulate chat functionality
 const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setCurrentUser: React.Dispatch<React.SetStateAction<User | null>> }> = ({ enabled, currentUser, setCurrentUser }) => {
-  const agent = useAgent({
-    agent: "chat", // This should ideally be dynamic or configurable if different agents exist
-    // Conditionally set agentId or api endpoint if useAgent supports it,
-    // or handle it in useAgentChat options.
-    // For now, useAgent is called, but useAgentChat will be conditional in its effect.
+  const agentConfig = useAgent({
+    agent: "chat",
   });
+
+  const [historyMessages, setHistoryMessages] = useState<Message[] | undefined>(undefined);
+  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(true);
+
+  useEffect(() => {
+    if (enabled && currentUser?.userId) {
+      setIsLoadingHistory(true);
+      fetch('/chat/history')
+        .then(res => {
+          if (res.ok) {
+            return res.json();
+          }
+          if (res.status === 401) {
+            setCurrentUser(null);
+          }
+          console.error("Failed to fetch chat history, status:", res.status);
+          return [];
+        })
+        .then((data: Message[] | undefined) => {
+          setHistoryMessages(Array.isArray(data) ? data : []);
+        })
+        .catch(err => {
+          console.error("Error fetching/parsing chat history:", err);
+          setHistoryMessages([]);
+        })
+        .finally(() => {
+          setIsLoadingHistory(false);
+        });
+    } else if (!enabled) {
+      setHistoryMessages(undefined);
+      setIsLoadingHistory(true);
+    }
+  }, [enabled, currentUser?.userId, setCurrentUser]);
 
   const {
     messages: agentMessages,
@@ -50,48 +80,40 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
     handleInputChange: handleAgentInputChange,
     handleSubmit: handleAgentSubmit,
     addToolResult,
-    clearHistory, // Keep clearHistory
-    isLoading,
-    stop, // Keep stop
-    // error, // useAgentChat doesn't seem to expose 'error' directly in the provided code.
-    // reload, // useAgentChat doesn't seem to expose 'reload' directly.
+    clearHistory,
+    isLoading: isAgentLoading,
+    stop,
   } = useAgentChat({
-    agent: enabled ? agent : undefined, // Pass agent only if enabled
-    initialMessages: [], // Start with empty messages
-    // The 'api' endpoint is usually part of the agent configuration passed to useAgent
-    // or implicitly handled by the agent string 'chat'.
-    // If 'agent' is undefined, useAgentChat should ideally not make API calls.
+    agent: (enabled && !isLoadingHistory && historyMessages !== undefined) ? agentConfig : undefined,
+    initialMessages: historyMessages,
+    id: currentUser?.userId,
     maxSteps: 5,
     onError: (err) => {
       console.error("Chat error:", err);
-      // Assuming error has a message property and might indicate auth failure
-      // This is a simplistic check; real error handling might need to inspect status codes if available
       if (err.message.includes("401") || err.message.toLowerCase().includes("unauthorized")) {
-        setCurrentUser(null); // Log out user if session becomes invalid
+        setCurrentUser(null);
       }
     }
   });
 
-  const messagesEndRef = useRef<HTMLDivElement>(null); // Specific to ChatInterface's scroll
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
-   useEffect(() => {
+  useEffect(() => {
     if (agentMessages.length > 0) {
       scrollToBottom();
     }
   }, [agentMessages, scrollToBottom]);
 
-  // Copied from original Chat component, needed for ToolInvocationCard
   const [showDebug, setShowDebug] = useState(() => {
-    const saved = localStorage.getItem("showDebug"); // Assuming debug state might be saved
+    const saved = localStorage.getItem("showDebug");
     return saved ? JSON.parse(saved) : false;
   });
-   useEffect(() => {
+  useEffect(() => {
     localStorage.setItem("showDebug", JSON.stringify(showDebug));
   }, [showDebug]);
-
 
   const pendingToolCallConfirmation = agentMessages.some((m: Message) =>
     m.parts?.some(
@@ -110,16 +132,16 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
 
   const [textareaHeight, setTextareaHeight] = useState("auto");
 
+  if (enabled && isLoadingHistory) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-4">
+        <p className="text-muted-foreground">Loading chat history...</p>
+      </div>
+    );
+  }
 
-  // If not enabled (e.g. user not logged in), useAgentChat might have been called with agent: undefined
-  // We should ensure it doesn't try to render a chat interface or make calls.
-  // The parent will hide this component anyway, but this is a safeguard.
-  if (!enabled) {
-    // This part might not be strictly necessary if the parent component (Chat)
-    // correctly handles conditional rendering of ChatInterface.
-    // However, if useAgentChat with agent:undefined still tries to do things,
-    // this early return can prevent rendering its UI.
-    return null;
+  if (!enabled && !isLoadingHistory) {
+      return null;
   }
 
   return (
@@ -138,7 +160,9 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
         <Button
             variant="ghost"
             size="sm"
-            onClick={clearHistory}
+            onClick={() => {
+              clearHistory();
+            }}
             aria-label="Clear chat history"
         >
             <Trash size={16} />
@@ -151,16 +175,18 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
       {/* Approximate calculation: 100vh - app_header_h - chat_controls_h - input_form_h - misc_padding */}
       {/* Let's assume app_header is ~3.5rem, chat_controls is ~3rem, input_form is ~4rem. Total ~10.5rem. Plus p-4 on main container (2rem). */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 max-h-[calc(100vh-12.5rem)]">
-        {agentMessages.length === 0 && !isLoading && (
+        {agentMessages.length === 0 && !isAgentLoading && (
           <div className="h-full flex items-center justify-center">
             <Card className="p-6 max-w-md mx-auto bg-neutral-100 dark:bg-neutral-900">
               <div className="text-center space-y-4">
                 <div className="bg-[#F48120]/10 text-[#F48120] rounded-full p-3 inline-flex">
                   <Robot size={24} />
                 </div>
-                <h3 className="font-semibold text-lg">Welcome, {currentUser?.username}!</h3>
+                <h3 className="font-semibold text-lg">
+                  {currentUser?.username ? `Welcome, ${currentUser.username}!` : "Welcome!"}
+                </h3>
                 <p className="text-muted-foreground text-sm">
-                  Start a conversation with your AI assistant.
+                  {historyMessages && historyMessages.length > 0 ? "Continue your conversation or start a new one." : "Start a conversation with your AI assistant."}
                 </p>
               </div>
             </Card>
@@ -171,9 +197,10 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
           const isUser = m.role === "user";
           const showAvatar =
             index === 0 || agentMessages[index - 1]?.role !== m.role;
+          const messageDate = m.createdAt ? new Date(m.createdAt as any) : new Date();
 
           return (
-            <div key={m.id}>
+            <div key={m.id || `msg-${index}`}>
               {showDebug && (
                 <pre className="text-xs text-muted-foreground overflow-scroll">
                   {JSON.stringify(m, null, 2)}
@@ -198,7 +225,6 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
                       {m.parts?.map((part, i) => {
                         if (part.type === "text") {
                           return (
-                            // biome-ignore lint/suspicious/noArrayIndexKey: immutable index
                             <div key={i}>
                               <Card
                                 className={`p-3 rounded-md bg-neutral-100 dark:bg-neutral-900 ${
@@ -219,7 +245,7 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
                                   </span>
                                 )}
                                 <MemoizedMarkdown
-                                  id={`${m.id}-${i}`}
+                                  id={`${m.id || `msg-${index}`}-${i}`}
                                   content={part.text.replace(
                                     /^scheduled message: /,
                                     ""
@@ -231,25 +257,23 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
                                   isUser ? "text-right" : "text-left"
                                 }`}
                               >
-                                {formatTime(
-                                  new Date(m.createdAt as unknown as string)
-                                )}
+                                {formatTime(messageDate)}
                               </p>
                             </div>
                           );
                         }
 
                         if (part.type === "tool-invocation") {
-                          const toolInvocation = part.toolInvocation;
-                          const toolCallId = toolInvocation.toolCallId;
-                          const needsConfirmation =
+                           const toolInvocation = part.toolInvocation;
+                           const toolCallId = toolInvocation.toolCallId;
+                           const needsConfirmation =
                             toolsRequiringConfirmation.includes(
                               toolInvocation.toolName as keyof typeof tools
                             );
 
-                          if (showDebug) return null;
+                           if (showDebug) return null;
 
-                          return (
+                           return (
                             <ToolInvocationCard
                               key={`${toolCallId}-${i}`}
                               toolInvocation={toolInvocation}
@@ -268,19 +292,18 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
             </div>
           );
         })}
-        {isLoading && agentMessages.length === 0 && (
+        {isAgentLoading && agentMessages.length === 0 && (
              <div className="h-full flex items-center justify-center">
-                <p className="text-muted-foreground">Loading messages...</p> {/* Placeholder for Loader */}
+                <p className="text-muted-foreground">Thinking...</p>
              </div>
         )}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (!enabled) return; // Extra check
+          if (!enabled || isAgentLoading) return;
           handleAgentSubmit(e, {
             data: { annotations: { hello: "world" } },
           });
@@ -291,7 +314,7 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
         <div className="flex items-center gap-2">
           <div className="flex-1 relative">
             <Textarea
-              disabled={!enabled || pendingToolCallConfirmation}
+              disabled={!enabled || pendingToolCallConfirmation || isAgentLoading}
               placeholder={
                 pendingToolCallConfirmation
                   ? "Please respond to the tool confirmation above..."
@@ -310,7 +333,7 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
                   e.key === "Enter" &&
                   !e.shiftKey &&
                   !e.nativeEvent.isComposing &&
-                  enabled
+                  enabled && !isAgentLoading
                 ) {
                   e.preventDefault();
                   handleAgentSubmit(e as unknown as React.FormEvent);
@@ -321,7 +344,7 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
               style={{ height: textareaHeight }}
             />
             <div className="absolute bottom-0 right-0 p-2 w-fit flex flex-row justify-end">
-              {isLoading ? (
+              {isAgentLoading ? (
                 <button
                   type="button"
                   onClick={stop}
@@ -334,7 +357,7 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
               ) : (
                 <button
                   type="submit"
-                  disabled={!enabled || pendingToolCallConfirmation || !agentInput.trim()}
+                  disabled={!enabled || pendingToolCallConfirmation || !agentInput.trim() || isAgentLoading}
                   className="inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full p-1.5 h-fit border border-neutral-200 dark:border-neutral-800"
                   aria-label="Send message"
                 >
