@@ -297,7 +297,7 @@ export default {
         const sessionCookie = createSessionCookie(sessionData);
 
         const headers = new Headers({
-          'Location': '/', // Redirect to home page after login
+          'Location': 'http://localhost:5173/', // Redirect to frontend after login
           'Set-Cookie': sessionCookie,
         });
         // Append the command to clear the state cookie

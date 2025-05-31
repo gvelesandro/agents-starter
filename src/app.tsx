@@ -459,9 +459,21 @@ export default function Chat() {
                 >
                   {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
                 </Button>
-                <a href="/auth/logout" className="px-3 py-1.5 text-sm bg-red-500 text-white rounded hover:bg-red-600">
+                <button 
+                  onClick={async () => {
+                    try {
+                      await fetch('/auth/logout', { method: 'GET' });
+                      setCurrentUser(null);
+                      window.location.reload();
+                    } catch (error) {
+                      console.error('Logout failed:', error);
+                      window.location.href = '/auth/logout';
+                    }
+                  }}
+                  className="px-3 py-1.5 text-sm bg-red-500 text-white rounded hover:bg-red-600"
+                >
                   Logout
-                </a>
+                </button>
               </div>
             ) : (
               <a href="/auth/github" className="px-3 py-1.5 text-sm bg-blue-500 text-white rounded hover:bg-blue-600">
