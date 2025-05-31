@@ -40,6 +40,7 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
   const agentConfig = useAgent({
     agent: "chat",
   });
+  console.log("agentConfig right after useAgent:", agentConfig);
 
   const [historyMessages, setHistoryMessages] = useState<Message[] | undefined>(undefined);
   const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(true);
@@ -74,6 +75,16 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
     }
   }, [enabled, currentUser?.userId, setCurrentUser]);
 
+  console.log(
+    "Conditions before useAgentChat:",
+    {
+      enabled,
+      isLoadingHistory,
+      isHistoryMessagesDefined: historyMessages !== undefined,
+      isAgentConfigUsable: (enabled && !isLoadingHistory && historyMessages !== undefined)
+    }
+  );
+  console.log("agentConfig right before useAgentChat:", agentConfig);
   const {
     messages: agentMessages,
     input: agentInput,
