@@ -11,6 +11,7 @@ import {
   streamText,
   type StreamTextOnFinishCallback,
   type ToolSet,
+  type Message, // Import Message type
 } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { processToolCalls } from "./utils";
@@ -28,6 +29,22 @@ const model = openai("gpt-4o-2024-11-20");
  * Chat Agent implementation that handles real-time AI chat interactions
  */
 export class Chat extends AIChatAgent<Env> {
+  private userSession: SessionData | null = null;
+
+  /**
+   * Override the fetch method to extract session from request headers
+   */
+  async fetch(request: Request): Promise<Response> {
+    try {
+      const session = await getSession(request);
+      this.userSession = session;
+    } catch (error) {
+      console.error(`Failed to extract session in Chat agent:`, error);
+      this.userSession = null;
+    }
+    return super.fetch(request);
+  }
+
   /**
    * Handles incoming chat messages and manages the response stream
    * @param onFinish - Callback function executed when streaming completes
@@ -37,6 +54,18 @@ export class Chat extends AIChatAgent<Env> {
     onFinish: StreamTextOnFinishCallback<ToolSet>,
     options?: { abortSignal?: AbortSignal }
   ) {
+    const session = this.userSession;
+    const userId = session?.userId;
+    const kv = this.env?.CHAT_HISTORY_KV as KVNamespace | undefined;
+
+    // Save user message immediately when received
+    if (userId && kv && this.messages.length > 0) {
+      try {
+        await kv.put(userId, JSON.stringify(this.messages));
+      } catch (e) {
+        console.error(`Failed to save user message for user ${userId}:`, e);
+      }
+    }
     // const mcpConnection = await this.mcp.connect(
     //   "https://path-to-mcp-server/sse"
     // );
@@ -74,7 +103,14 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
             onFinish(
               args as Parameters<StreamTextOnFinishCallback<ToolSet>>[0]
             );
-            // await this.mcp.closeConnection(mcpConnection.id);
+            // Save complete conversation after AI response
+            if (userId && kv) {
+              try {
+                await kv.put(userId, JSON.stringify(this.messages));
+              } catch (e) {
+                console.error(`Failed to save chat history for user ${userId}:`, e);
+              }
+            }
           },
           onError: (error) => {
             console.error("Error while streaming:", error);
@@ -90,15 +126,31 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
     return dataStreamResponse;
   }
   async executeTask(description: string, task: Schedule<string>) {
-    await this.saveMessages([
-      ...this.messages,
-      {
-        id: generateId(),
-        role: "user",
-        content: `Running scheduled task: ${description}`,
-        createdAt: new Date(),
-      },
-    ]);
+    const taskMessage: Message = {
+      id: generateId(),
+      role: "user",
+      content: `Running scheduled task: ${description}`,
+      createdAt: new Date(),
+    };
+
+    const updatedMessages = [...this.messages, taskMessage];
+    await this.saveMessages(updatedMessages);
+
+    const session = this.userSession;
+    const userId = session?.userId;
+    const kv = this.env?.CHAT_HISTORY_KV as KVNamespace | undefined;
+
+    if (userId && kv) {
+      try {
+        await kv.put(userId, JSON.stringify(this.messages));
+        console.log(`Chat history updated by executeTask for user ${userId}`);
+      } catch (e) {
+        console.error(`Failed to save chat history after executeTask for user ${userId}:`, e);
+      }
+    } else {
+      if (!userId) console.warn("No userId, skipping chat history save (executeTask).");
+      if (!kv) console.warn("KV namespace not available, skipping chat history save (executeTask).");
+    }
   }
 }
 
@@ -245,7 +297,7 @@ export default {
         const sessionCookie = createSessionCookie(sessionData);
 
         const headers = new Headers({
-          'Location': '/', // Redirect to home page after login
+          'Location': 'http://localhost:5173/', // Redirect to frontend after login
           'Set-Cookie': sessionCookie,
         });
         // Append the command to clear the state cookie
@@ -334,25 +386,81 @@ export default {
       // However, the Durable Object itself doesn't automatically get this modified env.
       // The session is validated; access is granted.
       // The DO will operate without direct knowledge of the user unless specifically passed.
-      console.log(`Session valid for ${session.username} on path ${url.pathname}. Proceeding.`);
+      console.log(`Session valid for ${session.username} on (non-public) path ${url.pathname}. Proceeding.`);
     }
     // --- End of Authentication Middleware Logic ---
 
+    // NEW: Route for /chat/history (Protected by the middleware above)
+    if (url.pathname === '/chat/history') {
+      const session = await getSession(request);
+
+      // This check is a safeguard. The middleware should have caught unauthenticated access.
+      if (!session || !session.userId) {
+         console.error("Critical: Reached /chat/history without session after auth middleware.");
+         return new Response(JSON.stringify({ error: 'Authentication failed unexpectedly.' }), {
+           status: 401, headers: { 'Content-Type': 'application/json' }
+         });
+      }
+
+      const userId = session.userId;
+      const kv = env.CHAT_HISTORY_KV;
+
+      if (!kv) {
+        console.warn('CHAT_HISTORY_KV namespace not available when trying to load history for user:', userId);
+        // Return empty array instead of error for development mode
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      try {
+        const historyJson = await kv.get(userId);
+        if (historyJson) {
+          const messages: Message[] = JSON.parse(historyJson);
+          return new Response(JSON.stringify(messages), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        } else {
+          // No history found, return an empty array. This is a valid state.
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+      } catch (error) {
+        console.error(`Failed to retrieve or parse chat history for user ${userId}:`, error);
+        return new Response(JSON.stringify({ error: 'Could not load chat history.', details: error.message }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    // Route for /check-open-ai-key (this seems to be public already)
     if (url.pathname === "/check-open-ai-key") {
       const hasOpenAIKey = !!env.OPENAI_API_KEY;
       return Response.json({
         success: hasOpenAIKey,
       });
     }
-    if (!env.OPENAI_API_KEY) {
+
+    // OpenAI key check (should probably be earlier if it's a critical failure)
+    if (!env.OPENAI_API_KEY && !publicPaths.includes(url.pathname) && url.pathname !== '/chat/history') {
+      // Avoid erroring for public paths or the new history path if key is missing
       console.error(
         "OPENAI_API_KEY is not set, don't forget to set it locally in .dev.vars, and use `wrangler secret bulk .dev.vars` to upload it to production"
       );
+      // Potentially return an error if this is a route that requires OpenAI
     }
-    return (
-      // Route the request to our agent or return 404 if not found
-      (await routeAgentRequest(request, env, ctx)) || // ensure ctx is passed if routeAgentRequest expects it
-      new Response("Not found", { status: 404 })
-    );
+
+    // Fallback to agent routing for other paths (e.g., the main chat agent interaction endpoint)
+    const agentResponse = await routeAgentRequest(request, env, ctx);
+    if (agentResponse) {
+      return agentResponse;
+    }
+
+    return new Response("Not found", { status: 404 });
   },
 } satisfies ExportedHandler<Env>;
