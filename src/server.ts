@@ -99,6 +99,7 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
               }
             } else {
               if (!userId) console.warn("No userId, skipping chat history save.");
+              if (!kv) console.warn("KV namespace not available, skipping chat history save.");
             }
           },
           onError: (error) => {
@@ -396,9 +397,10 @@ export default {
       const kv = env.CHAT_HISTORY_KV;
 
       if (!kv) {
-        console.error('CHAT_HISTORY_KV namespace not available when trying to load history for user:', userId);
-        return new Response(JSON.stringify({ error: 'Chat history service not configured.' }), {
-          status: 500,
+        console.warn('CHAT_HISTORY_KV namespace not available when trying to load history for user:', userId);
+        // Return empty array instead of error for development mode
+        return new Response(JSON.stringify([]), {
+          status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
       }

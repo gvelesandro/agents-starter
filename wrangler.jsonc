@@ -17,6 +17,13 @@
       },
     ],
   },
+  "kv_namespaces": [
+    {
+      "binding": "CHAT_HISTORY_KV",
+      "id": "chat-history-kv",
+      "preview_id": "chat-history-kv-preview"
+    }
+  ],
   "migrations": [
     {
       "tag": "v1",

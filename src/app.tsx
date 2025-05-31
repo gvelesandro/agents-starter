@@ -37,10 +37,9 @@ interface User {
 
 // ChatInterface component to encapsulate chat functionality
 const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setCurrentUser: React.Dispatch<React.SetStateAction<User | null>> }> = ({ enabled, currentUser, setCurrentUser }) => {
-  const agentConfig = useAgent({
+  const agent = useAgent({
     agent: "chat",
   });
-  console.log("agentConfig right after useAgent:", agentConfig);
 
   const [historyMessages, setHistoryMessages] = useState<Message[] | undefined>(undefined);
   const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(true);
@@ -59,8 +58,8 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
           console.error("Failed to fetch chat history, status:", res.status);
           return [];
         })
-        .then((data: Message[] | undefined) => {
-          setHistoryMessages(Array.isArray(data) ? data : []);
+        .then((data: unknown) => {
+          setHistoryMessages(Array.isArray(data) ? data as Message[] : []);
         })
         .catch(err => {
           console.error("Error fetching/parsing chat history:", err);
@@ -75,16 +74,6 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
     }
   }, [enabled, currentUser?.userId, setCurrentUser]);
 
-  console.log(
-    "Conditions before useAgentChat:",
-    {
-      enabled,
-      isLoadingHistory,
-      isHistoryMessagesDefined: historyMessages !== undefined,
-      isAgentConfigUsable: (enabled && !isLoadingHistory && historyMessages !== undefined)
-    }
-  );
-  console.log("agentConfig right before useAgentChat:", agentConfig);
   const {
     messages: agentMessages,
     input: agentInput,
@@ -95,7 +84,7 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
     isLoading: isAgentLoading,
     stop,
   } = useAgentChat({
-    agent: (enabled && !isLoadingHistory && historyMessages !== undefined) ? agentConfig : undefined,
+    agent: agent,
     initialMessages: historyMessages,
     id: currentUser?.userId,
     maxSteps: 5,
@@ -164,7 +153,7 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
           <Toggle
             toggled={showDebug}
             aria-label="Toggle debug mode"
-            onClick={() => setShowDebug((prev) => !prev)}
+            onClick={() => setShowDebug((prev: boolean) => !prev)}
           />
           <span className="text-xs text-muted-foreground">Debug</span>
         </div>
@@ -405,7 +394,7 @@ export default function Chat() {
         }
         return null; // Or throw an error
       })
-      .then(data => {
+      .then((data: any) => {
         if (data && data.username) {
           setCurrentUser(data);
         }
@@ -417,10 +406,6 @@ export default function Chat() {
       .finally(() => {
         setIsLoadingUser(false);
       });
-  }, []);
-
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
   useEffect(() => {
