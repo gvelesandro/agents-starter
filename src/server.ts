@@ -29,6 +29,22 @@ const model = openai("gpt-4o-2024-11-20");
  * Chat Agent implementation that handles real-time AI chat interactions
  */
 export class Chat extends AIChatAgent<Env> {
+  private userSession: SessionData | null = null;
+
+  /**
+   * Override the fetch method to extract session from request headers
+   */
+  async fetch(request: Request): Promise<Response> {
+    try {
+      const session = await getSession(request);
+      this.userSession = session;
+    } catch (error) {
+      console.error(`Failed to extract session in Chat agent:`, error);
+      this.userSession = null;
+    }
+    return super.fetch(request);
+  }
+
   /**
    * Handles incoming chat messages and manages the response stream
    * @param onFinish - Callback function executed when streaming completes
@@ -38,16 +54,17 @@ export class Chat extends AIChatAgent<Env> {
     onFinish: StreamTextOnFinishCallback<ToolSet>,
     options?: { abortSignal?: AbortSignal }
   ) {
-    const request = this.context?.request as Request | undefined;
-    const session = request ? await getSession(request) : null;
+    const session = this.userSession;
     const userId = session?.userId;
     const kv = this.env?.CHAT_HISTORY_KV as KVNamespace | undefined;
 
-    if (!request) {
-      console.error("Request context not available in Chat agent.");
-    }
-    if (!kv && userId) {
-      console.warn(`CHAT_HISTORY_KV namespace not available. Chat history will not be saved for user ${userId}.`);
+    // Save user message immediately when received
+    if (userId && kv && this.messages.length > 0) {
+      try {
+        await kv.put(userId, JSON.stringify(this.messages));
+      } catch (e) {
+        console.error(`Failed to save user message for user ${userId}:`, e);
+      }
     }
     // const mcpConnection = await this.mcp.connect(
     //   "https://path-to-mcp-server/sse"
@@ -86,20 +103,13 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
             onFinish(
               args as Parameters<StreamTextOnFinishCallback<ToolSet>>[0]
             );
-            // await this.mcp.closeConnection(mcpConnection.id);
+            // Save complete conversation after AI response
             if (userId && kv) {
               try {
-                const messagesToSave = args.messages;
-                if (messagesToSave && messagesToSave.length > 0) {
-                  await kv.put(userId, JSON.stringify(messagesToSave));
-                  console.log(`Chat history saved for user ${userId}, ${messagesToSave.length} messages.`);
-                }
+                await kv.put(userId, JSON.stringify(this.messages));
               } catch (e) {
                 console.error(`Failed to save chat history for user ${userId}:`, e);
               }
-            } else {
-              if (!userId) console.warn("No userId, skipping chat history save.");
-              if (!kv) console.warn("KV namespace not available, skipping chat history save.");
             }
           },
           onError: (error) => {
@@ -126,8 +136,7 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
     const updatedMessages = [...this.messages, taskMessage];
     await this.saveMessages(updatedMessages);
 
-    const request = this.context?.request as Request | undefined;
-    const session = request ? await getSession(request) : null;
+    const session = this.userSession;
     const userId = session?.userId;
     const kv = this.env?.CHAT_HISTORY_KV as KVNamespace | undefined;
 

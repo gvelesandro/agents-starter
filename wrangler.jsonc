@@ -20,8 +20,8 @@
   "kv_namespaces": [
     {
       "binding": "CHAT_HISTORY_KV",
-      "id": "chat-history-kv",
-      "preview_id": "chat-history-kv-preview"
+      "id": "79997f3c3dae4b80a321eb5fcd6889ec",
+      "preview_id": "79997f3c3dae4b80a321eb5fcd6889ec"
     }
   ],
   "migrations": [

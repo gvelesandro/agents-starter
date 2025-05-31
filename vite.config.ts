@@ -11,4 +11,13 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  server: {
+    proxy: {
+      // Proxy API requests to the Wrangler dev server
+      '/auth': 'http://localhost:8787',
+      '/chat': 'http://localhost:8787',
+      '/check-open-ai-key': 'http://localhost:8787',
+      '/agents': 'http://localhost:8787',
+    },
+  },
 });
