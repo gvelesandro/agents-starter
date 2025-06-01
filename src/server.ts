@@ -37,6 +37,7 @@ export class Chat extends AIChatAgent<Env> {
    * and parse the threadId from the agent's ID.
    */
   async fetch(request: Request): Promise<Response> {
+    console.log(`Chat.fetch: Entry point. this.id = "${this.id}", typeof this.id = ${typeof this.id}`);
     try {
       const session = await getSession(request); // Assuming getSession handles errors or returns null
       this.userSession = session;
