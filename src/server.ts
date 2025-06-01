@@ -58,8 +58,10 @@ export class Chat extends AIChatAgent<Env> {
             console.error(`Chat.fetch: User ID mismatch. Session userId: "${this.userSession.userId}", userId from DO ID: "${userIdFromId}" for DO ID "${this.id}".`);
             return new Response("User ID mismatch", { status: 403 });
           }
+          // console.log(`Chat.fetch: Initialized for thread ${this.threadId}, user ${this.userSession.userId}`);
+          // Replace the above with more detailed logging for debugging:
+          console.log(`Chat.fetch: [Thread Path] DO ID: "${this.id}", Parsed userId: "${userIdFromId}", Parsed threadId: "${extractedThreadId}", Session userId: "${this.userSession?.userId}"`);
           this.threadId = extractedThreadId;
-          // Optional: console.log(`Chat.fetch: Initialized for thread "${this.threadId}", user "${this.userSession.userId}"`);
         } else {
           // This case means the ID had an underscore but didn't parse into two valid parts (e.g., "_thread" or "user_").
           console.warn(`Chat.fetch: Agent ID "${this.id}" contained an underscore but did not match expected userId_threadId format. Proceeding with base handling.`);
@@ -94,6 +96,14 @@ export class Chat extends AIChatAgent<Env> {
     onFinish: StreamTextOnFinishCallback<ToolSet>,
     options?: { abortSignal?: AbortSignal }
   ) {
+    console.log(`Chat.onChatMessage: Entry. Session userId: "${this.userSession?.userId}", Instance threadId: "${this.threadId}"`);
+    if (this.messages && this.messages.length > 0) {
+      const lastMessage = this.messages[this.messages.length - 1];
+      console.log(`Chat.onChatMessage: Last message content: "${lastMessage.content}", role: "${lastMessage.role}"`);
+    } else {
+      console.log("Chat.onChatMessage: No messages in this.messages array yet.");
+    }
+
     const session = this.userSession;
     const kv = this.env?.CHAT_HISTORY_KV as KVNamespace | undefined;
 
@@ -144,6 +154,7 @@ export class Chat extends AIChatAgent<Env> {
           executions,
         });
 
+        // console.log("Chat.onChatMessage: Messages sent to AI:", JSON.stringify(processedMessages, null, 2));
         // Stream the AI response using GPT-4
         const result = streamText({
           model,
@@ -170,7 +181,7 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
             }
           },
           onError: (error) => {
-            console.error("Error while streaming:", error);
+            console.error("Chat.onChatMessage: streamText ERROR:", error);
           },
           maxSteps: 10,
         });
