@@ -1,4 +1,4 @@
-import { type CookieSerializeOptions, serialize } from 'cookie'; // We'll need to install 'cookie'
+import { type SerializeOptions, serialize } from 'cookie'; // We'll need to install 'cookie'
 
 export interface SessionData {
   userId: string;
@@ -9,7 +9,7 @@ export interface SessionData {
 
 const SESSION_COOKIE_NAME = '__session';
 // Default cookie options - Secure should be true in production
-const defaultCookieOptions: CookieSerializeOptions = {
+const defaultCookieOptions: SerializeOptions = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production', // Needs NODE_ENV to be set appropriately
   path: '/',
@@ -19,7 +19,7 @@ const defaultCookieOptions: CookieSerializeOptions = {
 
 // This function will be more complex if we add signing/encryption
 // For now, it's a simple JSON stringification and Base64 encoding
-export function createSessionCookie(sessionData: SessionData, options?: CookieSerializeOptions): string {
+export function createSessionCookie(sessionData: SessionData, options?: SerializeOptions): string {
   const finalOptions = { ...defaultCookieOptions, ...options };
   const stringifiedData = JSON.stringify(sessionData);
   // In a real app, you'd sign or encrypt this value using SESSION_SECRET

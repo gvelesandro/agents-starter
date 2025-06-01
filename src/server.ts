@@ -1,5 +1,5 @@
 import { routeAgentRequest, type Schedule } from "agents";
-import { type CookieSerializeOptions, serialize } from 'cookie';
+import { serialize } from 'cookie';
 import { createSessionCookie, getSession, clearSessionCookie, type SessionData } from './auth/session';
 
 import { unstable_getSchedulePrompt } from "agents/schedule";
@@ -30,6 +30,7 @@ const model = openai("gpt-4o-2024-11-20");
  */
 export class Chat extends AIChatAgent<Env> {
   private userSession: SessionData | null = null;
+  private currentRequest: Request | null = null;
 
   /**
    * Override the fetch method to extract session from request headers
@@ -38,6 +39,7 @@ export class Chat extends AIChatAgent<Env> {
     try {
       const session = await getSession(request);
       this.userSession = session;
+      this.currentRequest = request;
     } catch (error) {
       console.error(`Failed to extract session in Chat agent:`, error);
       this.userSession = null;
@@ -58,10 +60,18 @@ export class Chat extends AIChatAgent<Env> {
     const userId = session?.userId;
     const kv = this.env?.CHAT_HISTORY_KV as KVNamespace | undefined;
 
+    // Get threadId from request headers or use default
+    const url = new URL(this.currentRequest?.url || '');
+    const threadId = url.searchParams.get('threadId') || 'default';
+
     // Save user message immediately when received
     if (userId && kv && this.messages.length > 0) {
       try {
-        await kv.put(userId, JSON.stringify(this.messages));
+        const threadKey = `${userId}:thread:${threadId}`;
+        await kv.put(threadKey, JSON.stringify(this.messages));
+        
+        // Update thread metadata
+        await this.updateThreadMetadata(userId, threadId, kv);
       } catch (e) {
         console.error(`Failed to save user message for user ${userId}:`, e);
       }
@@ -106,7 +116,11 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
             // Save complete conversation after AI response
             if (userId && kv) {
               try {
-                await kv.put(userId, JSON.stringify(this.messages));
+                const threadKey = `${userId}:thread:${threadId}`;
+                await kv.put(threadKey, JSON.stringify(this.messages));
+                
+                // Update thread metadata
+                await this.updateThreadMetadata(userId, threadId, kv);
               } catch (e) {
                 console.error(`Failed to save chat history for user ${userId}:`, e);
               }
@@ -142,8 +156,14 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
 
     if (userId && kv) {
       try {
-        await kv.put(userId, JSON.stringify(this.messages));
+        // For scheduled tasks, use the default thread
+        const threadId = 'default';
+        const threadKey = `${userId}:thread:${threadId}`;
+        await kv.put(threadKey, JSON.stringify(this.messages));
         console.log(`Chat history updated by executeTask for user ${userId}`);
+        
+        // Update thread metadata
+        await this.updateThreadMetadata(userId, threadId, kv);
       } catch (e) {
         console.error(`Failed to save chat history after executeTask for user ${userId}:`, e);
       }
@@ -151,6 +171,50 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
       if (!userId) console.warn("No userId, skipping chat history save (executeTask).");
       if (!kv) console.warn("KV namespace not available, skipping chat history save (executeTask).");
     }
+  }
+
+  private async updateThreadMetadata(userId: string, threadId: string, kv: KVNamespace) {
+    try {
+      const threadsKey = `${userId}:threads`;
+      const existingThreadsJson = await kv.get(threadsKey);
+      const existingThreads = existingThreadsJson ? JSON.parse(existingThreadsJson) : [];
+      
+      // Find existing thread or create new one
+      let thread = existingThreads.find((t: any) => t.id === threadId);
+      if (!thread) {
+        thread = {
+          id: threadId,
+          title: this.generateThreadTitle(),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        existingThreads.unshift(thread);
+      } else {
+        thread.updatedAt = new Date().toISOString();
+        // Update title if it's still the default and we have messages
+        if (thread.title.startsWith('New Chat') && this.messages.length > 0) {
+          thread.title = this.generateThreadTitle();
+        }
+        // Move to front
+        const index = existingThreads.indexOf(thread);
+        existingThreads.splice(index, 1);
+        existingThreads.unshift(thread);
+      }
+      
+      await kv.put(threadsKey, JSON.stringify(existingThreads));
+    } catch (e) {
+      console.error(`Failed to update thread metadata for user ${userId}:`, e);
+    }
+  }
+
+  private generateThreadTitle(): string {
+    if (this.messages.length > 0) {
+      const firstUserMessage = this.messages.find(m => m.role === 'user');
+      if (firstUserMessage && typeof firstUserMessage.content === 'string') {
+        return firstUserMessage.content.slice(0, 50).trim() + (firstUserMessage.content.length > 50 ? '...' : '');
+      }
+    }
+    return `New Chat ${new Date().toLocaleDateString()}`;
   }
 }
 
@@ -169,7 +233,6 @@ export default {
     const GITHUB_CLIENT_ID = env.GITHUB_CLIENT_ID;
     const GITHUB_CLIENT_SECRET = env.GITHUB_CLIENT_SECRET;
     const GITHUB_AUTHORIZED_USERNAMES = (env.GITHUB_AUTHORIZED_USERNAMES || '').split(',').map(u => u.trim()).filter(u => u);
-    const SESSION_SECRET = env.SESSION_SECRET; // Used for signing/encryption, though not fully implemented in session.ts yet
 
     const OAUTH_STATE_COOKIE_NAME = '__oauth_state';
 
@@ -355,6 +418,7 @@ export default {
       // However, 'public/' directory in wrangler.jsonc usually handles static assets separately.
     ];
 
+
     // --- Authentication Middleware Logic ---
     if (!publicPaths.includes(url.pathname)) {
       const session = await getSession(request); // getSession is async
@@ -390,7 +454,129 @@ export default {
     }
     // --- End of Authentication Middleware Logic ---
 
-    // NEW: Route for /chat/history (Protected by the middleware above)
+    // Route for /threads - Get all threads for user
+    if (url.pathname === '/threads') {
+      const session = await getSession(request);
+      if (!session?.userId) {
+        return new Response(JSON.stringify({ error: 'Authentication required' }), {
+          status: 401, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const userId = session.userId;
+      const kv = env.CHAT_HISTORY_KV;
+
+      if (!kv) {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      try {
+        const threadsKey = `${userId}:threads`;
+        const threadsJson = await kv.get(threadsKey);
+        const threads = threadsJson ? JSON.parse(threadsJson) : [];
+        
+        return new Response(JSON.stringify(threads), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (error) {
+        console.error(`Failed to retrieve threads for user ${userId}:`, error);
+        return new Response(JSON.stringify({ error: 'Could not load threads' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    // Route for /threads/:threadId - Get messages for specific thread
+    if (url.pathname.startsWith('/threads/') && request.method === 'GET') {
+      const session = await getSession(request);
+      if (!session?.userId) {
+        return new Response(JSON.stringify({ error: 'Authentication required' }), {
+          status: 401, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const threadId = url.pathname.split('/threads/')[1];
+      const userId = session.userId;
+      const kv = env.CHAT_HISTORY_KV;
+
+      if (!kv) {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      try {
+        const threadKey = `${userId}:thread:${threadId}`;
+        const historyJson = await kv.get(threadKey);
+        const messages = historyJson ? JSON.parse(historyJson) : [];
+        
+        return new Response(JSON.stringify(messages), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (error) {
+        console.error(`Failed to retrieve thread ${threadId} for user ${userId}:`, error);
+        return new Response(JSON.stringify({ error: 'Could not load thread' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    // Route for /threads/:threadId - Delete specific thread
+    if (url.pathname.startsWith('/threads/') && request.method === 'DELETE') {
+      const session = await getSession(request);
+      if (!session?.userId) {
+        return new Response(JSON.stringify({ error: 'Authentication required' }), {
+          status: 401, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const threadId = url.pathname.split('/threads/')[1];
+      const userId = session.userId;
+      const kv = env.CHAT_HISTORY_KV;
+
+      if (!kv) {
+        return new Response(JSON.stringify({ error: 'KV not available' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      try {
+        // Delete thread messages
+        const threadKey = `${userId}:thread:${threadId}`;
+        await kv.delete(threadKey);
+
+        // Remove from threads list
+        const threadsKey = `${userId}:threads`;
+        const threadsJson = await kv.get(threadsKey);
+        if (threadsJson) {
+          const threads = JSON.parse(threadsJson);
+          const updatedThreads = threads.filter((t: any) => t.id !== threadId);
+          await kv.put(threadsKey, JSON.stringify(updatedThreads));
+        }
+        
+        return new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (error) {
+        console.error(`Failed to delete thread ${threadId} for user ${userId}:`, error);
+        return new Response(JSON.stringify({ error: 'Could not delete thread' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    // NEW: Route for /chat/history (Protected by the middleware above) - Legacy compatibility
     if (url.pathname === '/chat/history') {
       const session = await getSession(request);
 
@@ -415,7 +601,9 @@ export default {
       }
 
       try {
-        const historyJson = await kv.get(userId);
+        // For backward compatibility, return default thread
+        const threadKey = `${userId}:thread:default`;
+        const historyJson = await kv.get(threadKey);
         if (historyJson) {
           const messages: Message[] = JSON.parse(historyJson);
           return new Response(JSON.stringify(messages), {
@@ -431,7 +619,7 @@ export default {
         }
       } catch (error) {
         console.error(`Failed to retrieve or parse chat history for user ${userId}:`, error);
-        return new Response(JSON.stringify({ error: 'Could not load chat history.', details: error.message }), {
+        return new Response(JSON.stringify({ error: 'Could not load chat history.', details: (error as Error).message }), {
           status: 500,
           headers: { 'Content-Type': 'application/json' },
         });

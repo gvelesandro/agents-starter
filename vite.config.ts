@@ -18,6 +18,7 @@ export default defineConfig({
       '/chat': 'http://localhost:8787',
       '/check-open-ai-key': 'http://localhost:8787',
       '/agents': 'http://localhost:8787',
+      '/threads': 'http://localhost:8787',
     },
   },
 });

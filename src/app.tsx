@@ -22,7 +22,11 @@ import {
   Trash,
   PaperPlaneTilt,
   Stop,
+  List,
 } from "@phosphor-icons/react";
+
+// Sidebar import
+import { Sidebar } from "@/components/sidebar/Sidebar";
 
 // List of tools that require human confirmation
 const toolsRequiringConfirmation: (keyof typeof tools)[] = [
@@ -36,7 +40,13 @@ interface User {
 }
 
 // ChatInterface component to encapsulate chat functionality
-const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setCurrentUser: React.Dispatch<React.SetStateAction<User | null>> }> = ({ enabled, currentUser, setCurrentUser }) => {
+const ChatInterface: React.FC<{ 
+  enabled: boolean; 
+  currentUser: User | null; 
+  setCurrentUser: React.Dispatch<React.SetStateAction<User | null>>; 
+  currentThreadId: string;
+  onThreadChange: (threadId: string) => void;
+}> = ({ enabled, currentUser, setCurrentUser, currentThreadId, onThreadChange }) => {
   const agent = useAgent({
     agent: "chat",
   });
@@ -45,9 +55,10 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
   const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(true);
 
   useEffect(() => {
-    if (enabled && currentUser?.userId) {
+    if (enabled && currentUser?.userId && currentThreadId) {
       setIsLoadingHistory(true);
-      fetch('/chat/history')
+      const url = currentThreadId === 'default' ? '/chat/history' : `/threads/${currentThreadId}`;
+      fetch(url)
         .then(res => {
           if (res.ok) {
             return res.json();
@@ -72,7 +83,7 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
       setHistoryMessages(undefined);
       setIsLoadingHistory(true);
     }
-  }, [enabled, currentUser?.userId, setCurrentUser]);
+  }, [enabled, currentUser?.userId, currentThreadId, setCurrentUser]);
 
   const {
     messages: agentMessages,
@@ -86,7 +97,7 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
   } = useAgentChat({
     agent: agent,
     initialMessages: historyMessages,
-    id: currentUser?.userId,
+    id: `${currentUser?.userId}-${currentThreadId}`,
     maxSteps: 5,
     onError: (err) => {
       console.error("Chat error:", err);
@@ -381,6 +392,8 @@ export default function Chat() {
   // showDebug, textareaHeight, messagesEndRef are now part of ChatInterface or not needed at this level
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoadingUser, setIsLoadingUser] = useState(true);
+  const [currentThreadId, setCurrentThreadId] = useState<string>('default');
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
 
   useEffect(() => {
     // Fetch user data when the component mounts
@@ -429,16 +442,53 @@ export default function Chat() {
     setTheme(newTheme);
   };
 
+  const handleThreadSelect = (threadId: string) => {
+    setCurrentThreadId(threadId);
+    setIsSidebarOpen(false); // Close sidebar on mobile after selection
+  };
+
+  const handleNewThread = () => {
+    const newThreadId = `thread_${Date.now()}`;
+    setCurrentThreadId(newThreadId);
+    setIsSidebarOpen(false); // Close sidebar on mobile after creation
+  };
+
   // agent and useAgentChat hooks are now inside ChatInterface
   // Other states like pendingToolCallConfirmation, formatTime are also moved to ChatInterface
 
   return (
-    <div className="h-[100vh] w-full p-4 flex justify-center items-center bg-fixed overflow-hidden">
+    <div className="h-[100vh] w-full flex bg-fixed overflow-hidden">
       <HasOpenAIKey />
-      <div className="h-[calc(100vh-2rem)] w-full mx-auto max-w-lg flex flex-col shadow-xl rounded-md overflow-hidden relative border border-neutral-300 dark:border-neutral-800">
+      
+      {/* Sidebar */}
+      {currentUser && (
+        <Sidebar
+          isOpen={isSidebarOpen}
+          onClose={() => setIsSidebarOpen(false)}
+          currentThreadId={currentThreadId}
+          onThreadSelect={handleThreadSelect}
+          onNewThread={handleNewThread}
+        />
+      )}
+      
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <div className="h-full w-full mx-auto max-w-4xl flex flex-col shadow-xl overflow-hidden relative border-l border-neutral-300 dark:border-neutral-800">
         {/* App-level Header for Login/Logout and Title */}
         <header className="p-4 border-b border-neutral-300 dark:border-neutral-800 flex justify-between items-center sticky top-0 z-20 bg-background dark:bg-neutral-950">
-          <h1 className="text-xl font-semibold">Chat Agent</h1>
+          <div className="flex items-center gap-4">
+            {currentUser && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsSidebarOpen(true)}
+                className="md:hidden"
+              >
+                <List size={20} />
+              </Button>
+            )}
+            <h1 className="text-xl font-semibold">Chat Agent</h1>
+          </div>
           {/* Theme and other controls can be moved here if they are app-level */}
           {/* Or keep them in ChatInterface if they are chat-specific */}
           {/* For now, only login/logout status in this header */}
@@ -492,7 +542,13 @@ export default function Chat() {
         )}
 
         {!isLoadingUser && currentUser && (
-          <ChatInterface enabled={true} currentUser={currentUser} setCurrentUser={setCurrentUser} />
+          <ChatInterface 
+            enabled={true} 
+            currentUser={currentUser} 
+            setCurrentUser={setCurrentUser}
+            currentThreadId={currentThreadId}
+            onThreadChange={handleThreadSelect}
+          />
         )}
 
         {!isLoadingUser && !currentUser && (
@@ -505,6 +561,7 @@ export default function Chat() {
             </div>
           </div>
         )}
+        </div>
       </div>
     </div>
   );
