@@ -8,7 +8,11 @@
       "Bash(git add:*)",
       "Bash(npx wrangler types)",
       "Bash(npx tsc:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(pkill:*)",
+      "Bash(rm:*)",
+      "Bash(true)",
+      "Bash(lsof:*)"
     ]
   },
   "enableAllProjectMcpServers": false

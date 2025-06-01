@@ -60,9 +60,8 @@ export class Chat extends AIChatAgent<Env> {
     const userId = session?.userId;
     const kv = this.env?.CHAT_HISTORY_KV as KVNamespace | undefined;
 
-    // Get threadId from request headers or use default
-    const url = new URL(this.currentRequest?.url || '');
-    const threadId = url.searchParams.get('threadId') || 'default';
+    // Get threadId from request or use default
+    const threadId = 'default'; // For now, always use default until we implement proper thread routing
 
     // Save user message immediately when received
     if (userId && kv && this.messages.length > 0) {
@@ -644,7 +643,9 @@ export default {
     }
 
     // Fallback to agent routing for other paths (e.g., the main chat agent interaction endpoint)
-    const agentResponse = await routeAgentRequest(request, env, ctx);
+    const agentResponse = await routeAgentRequest(request, env, { 
+      cors: true 
+    });
     if (agentResponse) {
       return agentResponse;
     }
