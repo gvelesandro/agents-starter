@@ -5,7 +5,8 @@
       "Bash(grep:*)",
       "Bash(npm run dev:*)",
       "Bash(npm test)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(npx wrangler types)"
     ]
   },
   "enableAllProjectMcpServers": false
