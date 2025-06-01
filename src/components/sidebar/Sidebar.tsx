@@ -15,6 +15,8 @@ interface SidebarProps {
   currentThreadId: string;
   onThreadSelect: (threadId: string) => void;
   onNewThread: () => void;
+  currentUser?: { userId: string; username: string } | null;
+  onThreadsChange?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -23,32 +25,52 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentThreadId,
   onThreadSelect,
   onNewThread,
+  currentUser,
+  onThreadsChange,
 }) => {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && currentUser) {
       loadThreads();
+    } else if (!currentUser) {
+      setThreads([]);
+      setIsLoading(false);
     }
-  }, [isOpen]);
+  }, [isOpen, currentUser]);
+
+  // Expose refresh function to parent
+  useEffect(() => {
+    if (onThreadsChange) {
+      // Create a function that can be called to refresh threads
+      (window as any).refreshThreads = loadThreads;
+    }
+  }, [onThreadsChange]);
 
   const loadThreads = async () => {
+    console.log('Loading threads...');
     setIsLoading(true);
     try {
       const response = await fetch('/threads');
+      console.log('Threads response:', response.status, response.statusText);
+      
       if (response.ok) {
         const data = await response.json();
+        console.log('Threads data:', data);
         setThreads(Array.isArray(data) ? data : []);
       } else {
         console.error('Failed to load threads, status:', response.status);
-        // If we get a 401, threads endpoint isn't working properly, but we shouldn't block
+        if (response.status === 401 || response.status === 302) {
+          console.log('Not authenticated, will show empty thread list');
+        }
         setThreads([]);
       }
     } catch (error) {
       console.error('Error loading threads:', error);
       setThreads([]);
     } finally {
+      console.log('Threads loading finished');
       setIsLoading(false);
     }
   };
@@ -148,7 +170,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           ) : threads.length === 0 ? (
             <div className="p-4 text-center text-neutral-500">
-              No conversations yet
+              <div className="mb-2">No conversations yet</div>
+              <div className="text-xs text-neutral-400">Start a new conversation to see it here</div>
             </div>
           ) : (
             <div className="p-2 space-y-1">

@@ -468,6 +468,7 @@ export default function Chat() {
           currentThreadId={currentThreadId}
           onThreadSelect={handleThreadSelect}
           onNewThread={handleNewThread}
+          currentUser={currentUser}
         />
       )}
       

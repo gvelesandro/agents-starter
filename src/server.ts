@@ -30,7 +30,6 @@ const model = openai("gpt-4o-2024-11-20");
  */
 export class Chat extends AIChatAgent<Env> {
   private userSession: SessionData | null = null;
-  private currentRequest: Request | null = null;
 
   /**
    * Override the fetch method to extract session from request headers
@@ -39,7 +38,6 @@ export class Chat extends AIChatAgent<Env> {
     try {
       const session = await getSession(request);
       this.userSession = session;
-      this.currentRequest = request;
     } catch (error) {
       console.error(`Failed to extract session in Chat agent:`, error);
       this.userSession = null;
@@ -60,8 +58,18 @@ export class Chat extends AIChatAgent<Env> {
     const userId = session?.userId;
     const kv = this.env?.CHAT_HISTORY_KV as KVNamespace | undefined;
 
-    // Get threadId from request or use default
-    const threadId = 'default'; // For now, always use default until we implement proper thread routing
+    // Extract threadId from the agent connection name (format: "userId-threadId")
+    let threadId = 'default';
+    
+    // The connection name from frontend is in format: "userId-threadId"
+    if (this.name) {
+      const parts = this.name.split('-');
+      if (parts.length >= 2) {
+        threadId = parts.slice(1).join('-'); // In case threadId itself contains dashes
+      }
+    }
+    
+    console.log('Chat onChatMessage - connection name:', this.name, 'extracted threadId:', threadId);
 
     // Save user message immediately when received
     if (userId && kv && this.messages.length > 0) {

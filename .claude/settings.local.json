@@ -12,7 +12,8 @@
       "Bash(pkill:*)",
       "Bash(rm:*)",
       "Bash(true)",
-      "Bash(lsof:*)"
+      "Bash(lsof:*)",
+      "Bash(find:*)"
     ]
   },
   "enableAllProjectMcpServers": false
