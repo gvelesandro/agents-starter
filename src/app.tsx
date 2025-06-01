@@ -2,9 +2,11 @@ import React, { useEffect, useState, useRef, useCallback, use } from "react"; //
 import { useAgent } from "agents/react";
 import { useAgentChat } from "agents/ai-react";
 import type { Message } from "@ai-sdk/react";
+import { generateId } from 'ai';
 import type { tools } from "./tools";
 
 // Component imports
+import { Sidebar } from "@/components/index"; // Assuming Sidebar is exported from components/index.ts
 import { Button } from "@/components/button/Button";
 import { Card } from "@/components/card/Card";
 import { Avatar } from "@/components/avatar/Avatar";
@@ -36,43 +38,56 @@ interface User {
 }
 
 // ChatInterface component to encapsulate chat functionality
-const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setCurrentUser: React.Dispatch<React.SetStateAction<User | null>> }> = ({ enabled, currentUser, setCurrentUser }) => {
+interface ChatInterfaceProps {
+  enabled: boolean;
+  currentUser: User | null;
+  setCurrentUser: React.Dispatch<React.SetStateAction<User | null>>;
+  currentThreadId: string | null; // New prop
+}
+
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ enabled, currentUser, setCurrentUser, currentThreadId }) => {
   const agent = useAgent({
-    agent: "chat",
+    agent: "chat", // This will likely need to be dynamic or passed if agent name changes per thread
   });
 
   const [historyMessages, setHistoryMessages] = useState<Message[] | undefined>(undefined);
-  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(true);
+  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false); // Start false, trigger on currentThreadId
 
   useEffect(() => {
-    if (enabled && currentUser?.userId) {
+    if (enabled && currentUser?.userId && currentThreadId) {
       setIsLoadingHistory(true);
-      fetch('/chat/history')
+      fetch(`/chat/thread/${currentThreadId}`) // Fetch specific thread history
         .then(res => {
           if (res.ok) {
             return res.json();
           }
           if (res.status === 401) {
-            setCurrentUser(null);
+            setCurrentUser(null); // Session expired or unauthorized
           }
-          console.error("Failed to fetch chat history, status:", res.status);
-          return [];
+          if (res.status === 404) { // Thread not found (e.g., new thread)
+            return [];
+          }
+          console.error("Failed to fetch chat history for thread:", res.statusText);
+          return []; // Fallback to empty on other errors
         })
         .then((data: unknown) => {
           setHistoryMessages(Array.isArray(data) ? data as Message[] : []);
         })
         .catch(err => {
-          console.error("Error fetching/parsing chat history:", err);
+          console.error("Error fetching/parsing chat history for thread:", err);
           setHistoryMessages([]);
         })
         .finally(() => {
           setIsLoadingHistory(false);
         });
-    } else if (!enabled) {
+    } else { // If not enabled, no user, or no threadId, clear messages
       setHistoryMessages(undefined);
-      setIsLoadingHistory(true);
+      setIsLoadingHistory(false);
     }
-  }, [enabled, currentUser?.userId, setCurrentUser]);
+  }, [enabled, currentUser?.userId, currentThreadId, setCurrentUser]);
+
+
+  const agentId = currentUser && currentThreadId ? `${currentUser.userId}_${currentThreadId}` : undefined;
 
   const {
     messages: agentMessages,
@@ -80,19 +95,20 @@ const ChatInterface: React.FC<{ enabled: boolean; currentUser: User | null; setC
     handleInputChange: handleAgentInputChange,
     handleSubmit: handleAgentSubmit,
     addToolResult,
-    clearHistory,
+    clearHistory, // This will clear for the current agentId (current thread)
     isLoading: isAgentLoading,
     stop,
   } = useAgentChat({
     agent: agent,
-    initialMessages: historyMessages,
-    id: currentUser?.userId,
+    initialMessages: historyMessages, // Will be updated by useEffect above
+    id: agentId, // Composite ID for the agent
     maxSteps: 5,
     onError: (err) => {
       console.error("Chat error:", err);
       if (err.message.includes("401") || err.message.toLowerCase().includes("unauthorized")) {
         setCurrentUser(null);
       }
+      // Potentially clear messages or show an error message in UI
     }
   });
 
@@ -381,6 +397,17 @@ export default function Chat() {
   // showDebug, textareaHeight, messagesEndRef are now part of ChatInterface or not needed at this level
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoadingUser, setIsLoadingUser] = useState(true);
+  const [currentThreadId, setCurrentThreadId] = useState<string | null>(null);
+
+  const handleSelectThread = (threadId: string) => {
+    setCurrentThreadId(threadId);
+  };
+
+  const handleCreateNewThread = () => {
+    const newThreadId = generateId(); // Using 'ai' package's generateId
+    setCurrentThreadId(newThreadId);
+    // ChatInterface will reset due to key change and fetch new (empty) history
+  };
 
   useEffect(() => {
     // Fetch user data when the component mounts
@@ -433,41 +460,48 @@ export default function Chat() {
   // Other states like pendingToolCallConfirmation, formatTime are also moved to ChatInterface
 
   return (
-    <div className="h-[100vh] w-full p-4 flex justify-center items-center bg-fixed overflow-hidden">
+    <div className="flex h-screen w-full bg-fixed overflow-hidden bg-neutral-50 dark:bg-neutral-950">
       <HasOpenAIKey />
-      <div className="h-[calc(100vh-2rem)] w-full mx-auto max-w-lg flex flex-col shadow-xl rounded-md overflow-hidden relative border border-neutral-300 dark:border-neutral-800">
+      {currentUser && (
+        <Sidebar
+          currentUserId={currentUser.userId}
+          currentThreadId={currentThreadId}
+          onSelectThread={handleSelectThread}
+          onCreateNewThread={handleCreateNewThread}
+        />
+      )}
+      <div className={`flex-1 flex flex-col overflow-hidden ${!currentUser ? 'w-full items-center justify-center' : ''}`}>
         {/* App-level Header for Login/Logout and Title */}
-        <header className="p-4 border-b border-neutral-300 dark:border-neutral-800 flex justify-between items-center sticky top-0 z-20 bg-background dark:bg-neutral-950">
-          <h1 className="text-xl font-semibold">Chat Agent</h1>
-          {/* Theme and other controls can be moved here if they are app-level */}
-          {/* Or keep them in ChatInterface if they are chat-specific */}
-          {/* For now, only login/logout status in this header */}
+        <header className="p-4 border-b border-neutral-300 dark:border-neutral-700 flex justify-between items-center bg-neutral-100 dark:bg-neutral-900 sticky top-0 z-20">
+          <h1 className="text-xl font-semibold text-neutral-800 dark:text-neutral-100">
+            {currentThreadId ? `Thread: ${currentThreadId.substring(0,8)}...` : "Chat Agent"}
+          </h1>
           <div>
             {isLoadingUser ? (
-              <p className="text-sm">Loading user...</p>
+              <p className="text-sm text-neutral-600 dark:text-neutral-300">Loading user...</p>
             ) : currentUser ? (
               <div className="flex items-center gap-4">
-                <span className="text-sm">Welcome, {currentUser.username}!</span>
-                {/* Theme toggle button can be here if it's app-level */}
+                <span className="text-sm text-neutral-700 dark:text-neutral-200">Welcome, {currentUser.username}!</span>
                 <Button
                   variant="ghost"
-                  size="sm" // Adjusted size
+                  size="sm"
                   shape="square"
-                  className="rounded-full h-8 w-8" // Adjusted size
+                  className="rounded-full h-8 w-8 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700"
                   onClick={toggleTheme}
                   aria-label="Toggle theme"
                 >
                   {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
                 </Button>
-                <button 
+                <button
                   onClick={async () => {
                     try {
                       await fetch('/auth/logout', { method: 'GET' });
                       setCurrentUser(null);
-                      window.location.reload();
+                      setCurrentThreadId(null); // Clear current thread on logout
+                      // window.location.reload(); // Consider if reload is needed or just state update
                     } catch (error) {
                       console.error('Logout failed:', error);
-                      window.location.href = '/auth/logout';
+                      // window.location.href = '/auth/logout'; // Fallback
                     }
                   }}
                   className="px-3 py-1.5 text-sm bg-red-500 text-white rounded hover:bg-red-600"
@@ -486,20 +520,36 @@ export default function Chat() {
         {/* Conditionally render ChatInterface or placeholder content */}
         {isLoadingUser && (
           <div className="flex-1 flex items-center justify-center p-4">
-            {/* Using a simple text loader for now, replace with <Loader /> if available and desired */}
-            <p className="text-xl text-muted-foreground">Loading session...</p>
+            <p className="text-xl text-neutral-500 dark:text-neutral-400">Loading session...</p>
           </div>
         )}
 
-        {!isLoadingUser && currentUser && (
-          <ChatInterface enabled={true} currentUser={currentUser} setCurrentUser={setCurrentUser} />
+        {!isLoadingUser && currentUser && currentThreadId && (
+          <ChatInterface
+            key={currentThreadId} // Crucial for re-initializing ChatInterface on thread change
+            enabled={true}
+            currentUser={currentUser}
+            setCurrentUser={setCurrentUser}
+            currentThreadId={currentThreadId}
+          />
+        )}
+
+        {!isLoadingUser && currentUser && !currentThreadId && (
+           <div className="flex-1 flex items-center justify-center p-4 text-center">
+             <div>
+               <Robot size={48} className="mx-auto text-neutral-500 dark:text-neutral-400 mb-4" />
+               <p className="text-xl text-neutral-500 dark:text-neutral-400">
+                 Select a thread or create a new one to start chatting.
+               </p>
+             </div>
+           </div>
         )}
 
         {!isLoadingUser && !currentUser && (
           <div className="flex-1 flex items-center justify-center p-4 text-center">
             <div>
-              <Robot size={48} className="mx-auto text-muted-foreground mb-4" />
-              <p className="text-xl text-muted-foreground">
+              <Robot size={48} className="mx-auto text-neutral-500 dark:text-neutral-400 mb-4" />
+              <p className="text-xl text-neutral-500 dark:text-neutral-400">
                 Please <a href="/auth/github" className="text-blue-500 hover:underline">log in</a> to start chatting.
               </p>
             </div>

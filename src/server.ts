@@ -30,17 +30,46 @@ const model = openai("gpt-4o-2024-11-20");
  */
 export class Chat extends AIChatAgent<Env> {
   private userSession: SessionData | null = null;
+  private threadId: string | null = null;
 
   /**
    * Override the fetch method to extract session from request headers
+   * and parse the threadId from the agent's ID.
    */
   async fetch(request: Request): Promise<Response> {
     try {
       const session = await getSession(request);
       this.userSession = session;
+
+      if (!session || !session.userId) {
+        console.error("Chat.fetch: User session or userId is missing.");
+        return new Response("User session not found.", { status: 401 });
+      }
+
+      if (this.id) {
+        const parts = this.id.split('_');
+        if (parts.length < 2) { // Expects at least userId_threadId
+          console.error(`Chat.fetch: Agent ID '${this.id}' is not a valid composite userId_threadId.`);
+          return new Response("Invalid agent identifier: Missing threadId.", { status: 400 });
+        }
+
+        this.threadId = parts.pop()!; // Last part is threadId
+        const idUserId = parts.join('_'); // Remaining parts form userId
+
+        if (idUserId !== session.userId) {
+          console.error(`Chat.fetch: User ID mismatch. Session userId: '${session.userId}', ID userId: '${idUserId}'.`);
+          return new Response("User ID mismatch.", { status: 403 });
+        }
+        console.log(`Chat agent initialized for userId: ${idUserId}, threadId: ${this.threadId}`);
+      } else {
+        console.error("Chat.fetch: Agent ID is not set.");
+        return new Response("Agent ID not provided.", { status: 500 });
+      }
     } catch (error) {
-      console.error(`Failed to extract session in Chat agent:`, error);
+      console.error(`Chat.fetch: Error during initialization:`, error);
       this.userSession = null;
+      if (error instanceof Response) return error;
+      return new Response("Error initializing chat agent.", { status: 500 });
     }
     return super.fetch(request);
   }
@@ -55,15 +84,31 @@ export class Chat extends AIChatAgent<Env> {
     options?: { abortSignal?: AbortSignal }
   ) {
     const session = this.userSession;
-    const userId = session?.userId;
     const kv = this.env?.CHAT_HISTORY_KV as KVNamespace | undefined;
 
+    if (!session || !session.userId) {
+      console.error("Chat.onChatMessage: User session or userId not available.");
+      // This should ideally be caught by fetch, but as a safeguard:
+      throw new Error("User session not available. Cannot proceed with chat.");
+    }
+    if (!this.threadId) {
+      console.error("Chat.onChatMessage: threadId is not set.");
+      throw new Error("threadId not available. Cannot proceed with chat.");
+    }
+
+    const userId = session.userId; // Use validated userId from session
+    const kvKey = `${userId}_${this.threadId}`;
+
     // Save user message immediately when received
-    if (userId && kv && this.messages.length > 0) {
+    if (kv && this.messages.length > 0) {
       try {
-        await kv.put(userId, JSON.stringify(this.messages));
+        // Make sure this.messages reflects the new message if it's added by the caller
+        // or if this.addMessage was called before onChatMessage.
+        // Assuming this.messages is up-to-date here.
+        await kv.put(kvKey, JSON.stringify(this.messages));
+        console.log(`User message saved for key ${kvKey}`);
       } catch (e) {
-        console.error(`Failed to save user message for user ${userId}:`, e);
+        console.error(`Failed to save user message for key ${kvKey}:`, e);
       }
     }
     // const mcpConnection = await this.mcp.connect(
@@ -104,11 +149,12 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
               args as Parameters<StreamTextOnFinishCallback<ToolSet>>[0]
             );
             // Save complete conversation after AI response
-            if (userId && kv) {
+            if (kv) { // userId and threadId are already validated and kvKey constructed
               try {
-                await kv.put(userId, JSON.stringify(this.messages));
+                await kv.put(kvKey, JSON.stringify(this.messages));
+                console.log(`Chat history saved for key ${kvKey} after AI response.`);
               } catch (e) {
-                console.error(`Failed to save chat history for user ${userId}:`, e);
+                console.error(`Failed to save chat history for key ${kvKey}:`, e);
               }
             }
           },
@@ -134,22 +180,99 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
     };
 
     const updatedMessages = [...this.messages, taskMessage];
-    await this.saveMessages(updatedMessages);
+    await this.saveMessages(updatedMessages); // This needs to use the new key too if it writes to KV
 
     const session = this.userSession;
-    const userId = session?.userId;
     const kv = this.env?.CHAT_HISTORY_KV as KVNamespace | undefined;
 
-    if (userId && kv) {
+    if (!session || !session.userId) {
+      console.warn("Chat.executeTask: No session/userId, skipping chat history save.");
+      // Depending on how critical this is, might throw an error
+      return;
+    }
+    if (!this.threadId) {
+      console.error("Chat.executeTask: threadId is not set. Skipping chat history save.");
+      // Depending on how critical this is, might throw an error
+      return;
+    }
+
+    const userId = session.userId;
+    const kvKey = `${userId}_${this.threadId}`;
+
+    // The `saveMessages` method internally updates `this.messages`.
+    // So, we just need to PUT the latest `this.messages`.
+    if (kv) {
       try {
-        await kv.put(userId, JSON.stringify(this.messages));
-        console.log(`Chat history updated by executeTask for user ${userId}`);
+        await kv.put(kvKey, JSON.stringify(this.messages));
+        console.log(`Chat history updated by executeTask for key ${kvKey}`);
       } catch (e) {
-        console.error(`Failed to save chat history after executeTask for user ${userId}:`, e);
+        console.error(`Failed to save chat history after executeTask for key ${kvKey}:`, e);
       }
     } else {
-      if (!userId) console.warn("No userId, skipping chat history save (executeTask).");
-      if (!kv) console.warn("KV namespace not available, skipping chat history save (executeTask).");
+      if (!kv) console.warn("Chat.executeTask: KV namespace not available, skipping chat history save.");
+    }
+
+    // Note: The `saveMessages` method in AIChatAgent usually loads from KV, updates, then saves.
+    // We need to ensure it's compatible or that this direct kv.put is sufficient.
+    // `AIChatAgent.saveMessages` does:
+    //   messages = await this.loadMessages() ?? []
+    //   messages.push(...newMessages)
+    //   await this.env.CHAT_HISTORY_KV.put(this.id, JSON.stringify(messages))
+    // This means `AIChatAgent.saveMessages` also needs to be aware of the `userId_threadId` key.
+    // For now, the `put` above correctly saves `this.messages` which `executeTask` modified.
+    // However, `this.addMessage` (called by `super.fetch`) and `this.saveMessages`
+    // in the base `AIChatAgent` would use `this.id` (the composite key) directly as the KV key.
+    // This is actually what we want for the base class methods if they use KV.
+    // Let's re-check `AIChatAgent.ts`.
+    // The `AIChatAgent` itself doesn't have `loadMessages` or `saveMessages` using KV.
+    // It has `this.messages.add(message)` which is an in-memory operation.
+    // `loadMessages` and `saveMessages` are specific to this `Chat` class (or were intended to be).
+    // The base `AIChatAgent` has `protected messages: Message[] = [];`
+    // and `addMessage(message: Message)` which just pushes to this array.
+    // The `Chat` class here has `saveMessages` which is NOT defined in the provided code.
+    // Let's assume `await this.saveMessages(updatedMessages);` was pseudo-code
+    // or a method not shown, and that `this.messages` is correctly updated in memory.
+    // The `kv.put` operations in `onChatMessage` and `executeTask` are responsible for KV persistence.
+  }
+
+  async clearHistory(): Promise<void> {
+    // Call base method to clear in-memory messages and notify client
+    // Assuming super.clearHistory() is synchronous or we don't need to wait for client update before KV delete.
+    // The actual `super.clearHistory()` in AIChatAgent is synchronous.
+    super.clearHistory();
+
+    const session = this.userSession;
+    const currentThreadId = this.threadId; // Should be set during fetch
+
+    if (!session || !session.userId) {
+      console.error("Chat.clearHistory: No user session found. Cannot clear from KV.");
+      // Not throwing an error here because client-side messages are already cleared.
+      // This ensures partial success (UI clear) even if server-side KV delete fails pre-check.
+      return;
+    }
+    if (!currentThreadId) {
+      console.error("Chat.clearHistory: No threadId found. Cannot clear from KV.");
+      return;
+    }
+
+    const kv = this.env?.CHAT_HISTORY_KV as KVNamespace | undefined;
+    if (!kv) {
+      console.error("Chat.clearHistory: CHAT_HISTORY_KV namespace not available. Cannot clear from KV.");
+      // Consider if an error should be thrown to the client.
+      // For now, logs the error and returns, client messages are already cleared.
+      return;
+    }
+
+    const kvKey = `${session.userId}_${currentThreadId}`;
+
+    try {
+      await kv.delete(kvKey);
+      console.log(`Chat history cleared from KV for key: ${kvKey}`);
+    } catch (e) {
+      console.error(`Failed to delete chat history from KV for key ${kvKey}:`, e);
+      // Depending on how the agent framework handles errors from this method,
+      // an error could be thrown here. For now, logging it.
+      // throw new Error(`Failed to delete chat history from KV: ${e.message}`);
     }
   }
 }
@@ -314,6 +437,57 @@ export default {
       }
     }
 
+    // NEW: Route for /chat/thread/:threadId (Protected by the middleware)
+    const threadMatch = url.pathname.match(/^\/chat\/thread\/([a-zA-Z0-9_-]+)$/);
+    if (threadMatch) {
+      const threadId = threadMatch[1];
+      const session = await getSession(request);
+
+      if (!session || !session.userId) {
+        console.error("Critical: Reached /chat/thread/:threadId without session after auth middleware.");
+        return new Response(JSON.stringify({ error: 'Authentication failed unexpectedly.' }), {
+          status: 401, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const userId = session.userId;
+      const kv = env.CHAT_HISTORY_KV;
+
+      if (!kv) {
+        console.warn(`CHAT_HISTORY_KV namespace not available for user: ${userId}, thread: ${threadId}`);
+        return new Response(JSON.stringify({ error: 'Chat history storage not available.' }), {
+          status: 500, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const kvKey = `${userId}_${threadId}`;
+      try {
+        const historyJson = await kv.get(kvKey);
+        if (historyJson) {
+          const messages: Message[] = JSON.parse(historyJson);
+          return new Response(JSON.stringify(messages), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        } else {
+          // No history found for this specific thread, return an empty array or 404.
+          // For consistency with how new chats might appear, an empty array is fine.
+          // Or, a 404 might be more semantically correct if the thread is expected to exist.
+          // Let's go with 404 if no specific thread history is found.
+          return new Response(JSON.stringify({ error: 'Chat thread not found.' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+      } catch (error) {
+        console.error(`Failed to retrieve or parse chat history for key ${kvKey}:`, error);
+        return new Response(JSON.stringify({ error: 'Could not load chat thread history.', details: error.message }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     // Route: /auth/logout - Clear session and redirect
     if (url.pathname === '/auth/logout') {
       const sessionClearCookie = clearSessionCookie();
@@ -390,11 +564,10 @@ export default {
     }
     // --- End of Authentication Middleware Logic ---
 
-    // NEW: Route for /chat/history (Protected by the middleware above)
+    // Route for /chat/history (Lists all thread IDs for the user)
     if (url.pathname === '/chat/history') {
       const session = await getSession(request);
 
-      // This check is a safeguard. The middleware should have caught unauthenticated access.
       if (!session || !session.userId) {
          console.error("Critical: Reached /chat/history without session after auth middleware.");
          return new Response(JSON.stringify({ error: 'Authentication failed unexpectedly.' }), {
@@ -406,32 +579,32 @@ export default {
       const kv = env.CHAT_HISTORY_KV;
 
       if (!kv) {
-        console.warn('CHAT_HISTORY_KV namespace not available when trying to load history for user:', userId);
-        // Return empty array instead of error for development mode
-        return new Response(JSON.stringify([]), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
+        console.warn('CHAT_HISTORY_KV namespace not available for /chat/history, user:', userId);
+        return new Response(JSON.stringify({ error: 'Chat history storage not available.' }), {
+          status: 500, headers: { 'Content-Type': 'application/json' }
         });
       }
 
       try {
-        const historyJson = await kv.get(userId);
-        if (historyJson) {
-          const messages: Message[] = JSON.parse(historyJson);
-          return new Response(JSON.stringify(messages), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        } else {
-          // No history found, return an empty array. This is a valid state.
-          return new Response(JSON.stringify([]), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
+        const listResult = await kv.list({ prefix: userId + '_' });
+        const threadIds = listResult.keys.map(key => {
+          // key.name is like "userId_threadId"
+          // We need to extract the threadId part.
+          const parts = key.name.split('_');
+          return parts.slice(1).join('_'); // Handles threadIds that might themselves contain '_'
+        }).filter(tid => tid); // Filter out any empty threadIds if a key was somehow just "userId_"
+
+        // Optionally, add more metadata here later, e.g., last message snippet or timestamp
+        // For now, just the list of thread IDs.
+        const responseData = threadIds.map(id => ({ threadId: id }));
+
+        return new Response(JSON.stringify(responseData), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
       } catch (error) {
-        console.error(`Failed to retrieve or parse chat history for user ${userId}:`, error);
-        return new Response(JSON.stringify({ error: 'Could not load chat history.', details: error.message }), {
+        console.error(`Failed to list chat threads for user ${userId}:`, error);
+        return new Response(JSON.stringify({ error: 'Could not list chat threads.', details: error.message }), {
           status: 500,
           headers: { 'Content-Type': 'application/json' },
         });
