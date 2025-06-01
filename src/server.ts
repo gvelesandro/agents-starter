@@ -38,39 +38,62 @@ export class Chat extends AIChatAgent<Env> {
    */
   async fetch(request: Request): Promise<Response> {
     try {
-      const session = await getSession(request);
+      const session = await getSession(request); // Assuming getSession handles errors or returns null
       this.userSession = session;
 
-      if (!session || !session.userId) {
-        console.error("Chat.fetch: User session or userId is missing.");
-        return new Response("User session not found.", { status: 401 });
+      if (!this.id) {
+        // This case should ideally not happen if the DO is invoked with an ID.
+        console.error("Chat.fetch: Critical - Durable Object ID (this.id) is missing.");
+        return new Response("Agent instance ID missing", { status: 500 });
       }
 
-      if (this.id) {
-        const parts = this.id.split('_');
-        if (parts.length < 2) { // Expects at least userId_threadId
-          console.error(`Chat.fetch: Agent ID '${this.id}' is not a valid composite userId_threadId.`);
-          return new Response("Invalid agent identifier: Missing threadId.", { status: 400 });
+      // Reset threadId at the beginning of each fetch to ensure no stale state if logic below doesn't set it.
+      this.threadId = null;
+
+      // Check if the ID is in the expected format userId_threadId
+      // Split by the first underscore only to correctly handle threadIds that might contain underscores.
+      const idParts = this.id.split(/_(.*)/s);
+
+      if (idParts.length === 2 && idParts[0] && idParts[1]) {
+        const userIdFromId = idParts[0];
+        const threadIdFromId = idParts[1];
+
+        // Session validation is crucial for thread-specific operations
+        if (!session || !session.userId) {
+          console.error("Chat.fetch: User session or userId is missing. Cannot proceed with thread-specific ID.");
+          // For thread-specific IDs, a session is required.
+          return new Response("User session not found.", { status: 401 });
         }
 
-        this.threadId = parts.pop()!; // Last part is threadId
-        const idUserId = parts.join('_'); // Remaining parts form userId
-
-        if (idUserId !== session.userId) {
-          console.error(`Chat.fetch: User ID mismatch. Session userId: '${session.userId}', ID userId: '${idUserId}'.`);
-          return new Response("User ID mismatch.", { status: 403 });
+        if (userIdFromId === session.userId) {
+          this.threadId = threadIdFromId; // Set instance threadId
+          // Successfully initialized for a specific thread
+          console.log(`Chat.fetch: Initialized for userId: ${session.userId}, threadId: ${this.threadId}`);
+        } else {
+          console.error(`Chat.fetch: User ID mismatch. Session userId: '${session.userId}', ID userId: '${userIdFromId}'. Denying access for ID '${this.id}'.`);
+          return new Response("User ID mismatch.", { status: 403 }); // Forbidden
         }
-        console.log(`Chat agent initialized for userId: ${idUserId}, threadId: ${this.threadId}`);
       } else {
-        console.error("Chat.fetch: Agent ID is not set.");
-        return new Response("Agent ID not provided.", { status: 500 });
+        // ID is not in the expected "userId_threadId" format (e.g., "default", "user1", etc.)
+        console.warn(`Chat.fetch: Non-thread-specific or improperly formatted agent ID encountered: '${this.id}'. Proceeding without thread context.`);
+        // this.threadId remains null, as set above.
+        // Allow to proceed. Base agent might handle. If a session is required for these non-thread IDs,
+        // further checks for `session` might be needed here or in `super.fetch` or specific handlers.
+        // For now, if it's not a thread-specific ID, we don't enforce session presence at this stage,
+        // assuming `super.fetch` or subsequent logic will handle it if required.
       }
     } catch (error) {
-      console.error(`Chat.fetch: Error during initialization:`, error);
-      this.userSession = null;
+      console.error(`Chat.fetch: Error during session extraction or initial setup:`, error);
+      this.userSession = null; // Ensure session is cleared on error
+      this.threadId = null;  // Ensure threadId is cleared on error
+      // Depending on the error, might want to return an error response
+      // If it's a Response already, rethrow it
       if (error instanceof Response) return error;
-      return new Response("Error initializing chat agent.", { status: 500 });
+      // Otherwise, let super.fetch decide or return a generic error
+      return new Response("Error during agent initialization.", { status: 500 });
     }
+
+    // Proceed with the actual agent request handling by the base class or specific routes
     return super.fetch(request);
   }
 
