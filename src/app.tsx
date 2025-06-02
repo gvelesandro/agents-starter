@@ -40,26 +40,59 @@ interface User {
 }
 
 // ChatInterface component to encapsulate chat functionality
-const ChatInterface: React.FC<{ 
-  enabled: boolean; 
-  currentUser: User | null; 
-  setCurrentUser: React.Dispatch<React.SetStateAction<User | null>>; 
+const ChatInterface: React.FC<{
+  enabled: boolean;
+  currentUser: User | null;
+  setCurrentUser: React.Dispatch<React.SetStateAction<User | null>>;
   currentThreadId: string;
   onThreadChange: (threadId: string) => void;
-}> = ({ enabled, currentUser, setCurrentUser, currentThreadId, onThreadChange }) => {
+}> = ({
+  enabled,
+  currentUser,
+  setCurrentUser,
+  currentThreadId,
+  onThreadChange,
+}) => {
+  // State to control when we can safely use the agent chat hook
+  const [canUseAgentChat, setCanUseAgentChat] = useState(false);
+
   const agent = useAgent({
     agent: "chat",
+    name: `${currentUser?.userId}-${currentThreadId}`,
   });
 
-  const [historyMessages, setHistoryMessages] = useState<Message[] | undefined>(undefined);
+  // Enable agent chat only when we have a valid user and thread
+  useEffect(() => {
+    setCanUseAgentChat(
+      enabled && !!currentUser?.userId && !!currentThreadId && !!agent.agent
+    );
+  }, [enabled, currentUser?.userId, currentThreadId, agent.agent]);
+
+  // Debug agent info
+  useEffect(() => {
+    console.log("Agent info:", {
+      agent: agent.agent,
+      name: agent.name,
+      currentThreadId,
+      currentUser: currentUser?.userId,
+      canUseAgentChat,
+    });
+  }, [agent, currentThreadId, currentUser, canUseAgentChat]);
+
+  const [historyMessages, setHistoryMessages] = useState<Message[] | undefined>(
+    undefined
+  );
   const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(true);
 
   useEffect(() => {
     if (enabled && currentUser?.userId && currentThreadId) {
       setIsLoadingHistory(true);
-      const url = currentThreadId === 'default' ? '/chat/history' : `/threads/${currentThreadId}`;
+      const url =
+        currentThreadId === "default"
+          ? "/chat/history"
+          : `/threads/${currentThreadId}`;
       fetch(url)
-        .then(res => {
+        .then((res) => {
           if (res.ok) {
             return res.json();
           }
@@ -70,9 +103,9 @@ const ChatInterface: React.FC<{
           return [];
         })
         .then((data: unknown) => {
-          setHistoryMessages(Array.isArray(data) ? data as Message[] : []);
+          setHistoryMessages(Array.isArray(data) ? (data as Message[]) : []);
         })
-        .catch(err => {
+        .catch((err) => {
           console.error("Error fetching/parsing chat history:", err);
           setHistoryMessages([]);
         })
@@ -85,6 +118,23 @@ const ChatInterface: React.FC<{
     }
   }, [enabled, currentUser?.userId, currentThreadId, setCurrentUser]);
 
+  // Always call useAgentChat hook to avoid hook order violations
+  const agentChatResult = useAgentChat({
+    agent: agent,
+    initialMessages: historyMessages,
+    maxSteps: 5,
+    onError: (err) => {
+      console.error("Chat error:", err);
+      if (
+        err.message.includes("401") ||
+        err.message.toLowerCase().includes("unauthorized")
+      ) {
+        setCurrentUser(null);
+      }
+    },
+  });
+
+  // Use actual values when ready, fallback values when not
   const {
     messages: agentMessages,
     input: agentInput,
@@ -94,18 +144,18 @@ const ChatInterface: React.FC<{
     clearHistory,
     isLoading: isAgentLoading,
     stop,
-  } = useAgentChat({
-    agent: agent,
-    initialMessages: historyMessages,
-    id: `${currentUser?.userId}-${currentThreadId}`,
-    maxSteps: 5,
-    onError: (err) => {
-      console.error("Chat error:", err);
-      if (err.message.includes("401") || err.message.toLowerCase().includes("unauthorized")) {
-        setCurrentUser(null);
-      }
-    }
-  });
+  } = canUseAgentChat
+    ? agentChatResult
+    : {
+        messages: [],
+        input: "",
+        handleInputChange: () => {},
+        handleSubmit: () => {},
+        addToolResult: () => {},
+        clearHistory: () => {},
+        isLoading: false,
+        stop: () => {},
+      };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollToBottom = useCallback(() => {
@@ -152,7 +202,7 @@ const ChatInterface: React.FC<{
   }
 
   if (!enabled && !isLoadingHistory) {
-      return null;
+    return null;
   }
 
   return (
@@ -169,15 +219,15 @@ const ChatInterface: React.FC<{
           <span className="text-xs text-muted-foreground">Debug</span>
         </div>
         <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              clearHistory();
-            }}
-            aria-label="Clear chat history"
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            clearHistory();
+          }}
+          aria-label="Clear chat history"
         >
-            <Trash size={16} />
-            <span className="ml-1 text-xs">Clear</span>
+          <Trash size={16} />
+          <span className="ml-1 text-xs">Clear</span>
         </Button>
       </div>
 
@@ -194,10 +244,14 @@ const ChatInterface: React.FC<{
                   <Robot size={24} />
                 </div>
                 <h3 className="font-semibold text-lg">
-                  {currentUser?.username ? `Welcome, ${currentUser.username}!` : "Welcome!"}
+                  {currentUser?.username
+                    ? `Welcome, ${currentUser.username}!`
+                    : "Welcome!"}
                 </h3>
                 <p className="text-muted-foreground text-sm">
-                  {historyMessages && historyMessages.length > 0 ? "Continue your conversation or start a new one." : "Start a conversation with your AI assistant."}
+                  {historyMessages && historyMessages.length > 0
+                    ? "Continue your conversation or start a new one."
+                    : "Start a conversation with your AI assistant."}
                 </p>
               </div>
             </Card>
@@ -208,7 +262,9 @@ const ChatInterface: React.FC<{
           const isUser = m.role === "user";
           const showAvatar =
             index === 0 || agentMessages[index - 1]?.role !== m.role;
-          const messageDate = m.createdAt ? new Date(m.createdAt as any) : new Date();
+          const messageDate = m.createdAt
+            ? new Date(m.createdAt as any)
+            : new Date();
 
           return (
             <div key={m.id || `msg-${index}`}>
@@ -248,9 +304,7 @@ const ChatInterface: React.FC<{
                                     : ""
                                 } relative`}
                               >
-                                {part.text.startsWith(
-                                  "scheduled message"
-                                ) && (
+                                {part.text.startsWith("scheduled message") && (
                                   <span className="absolute -top-3 -left-2 text-base">
                                     🕒
                                   </span>
@@ -275,16 +329,16 @@ const ChatInterface: React.FC<{
                         }
 
                         if (part.type === "tool-invocation") {
-                           const toolInvocation = part.toolInvocation;
-                           const toolCallId = toolInvocation.toolCallId;
-                           const needsConfirmation =
+                          const toolInvocation = part.toolInvocation;
+                          const toolCallId = toolInvocation.toolCallId;
+                          const needsConfirmation =
                             toolsRequiringConfirmation.includes(
                               toolInvocation.toolName as keyof typeof tools
                             );
 
-                           if (showDebug) return null;
+                          if (showDebug) return null;
 
-                           return (
+                          return (
                             <ToolInvocationCard
                               key={`${toolCallId}-${i}`}
                               toolInvocation={toolInvocation}
@@ -304,9 +358,9 @@ const ChatInterface: React.FC<{
           );
         })}
         {isAgentLoading && agentMessages.length === 0 && (
-             <div className="h-full flex items-center justify-center">
-                <p className="text-muted-foreground">Thinking...</p>
-             </div>
+          <div className="h-full flex items-center justify-center">
+            <p className="text-muted-foreground">Thinking...</p>
+          </div>
         )}
         <div ref={messagesEndRef} />
       </div>
@@ -325,13 +379,15 @@ const ChatInterface: React.FC<{
         <div className="flex items-center gap-2">
           <div className="flex-1 relative">
             <Textarea
-              disabled={!enabled || pendingToolCallConfirmation || isAgentLoading}
+              disabled={
+                !enabled || pendingToolCallConfirmation || isAgentLoading
+              }
               placeholder={
                 pendingToolCallConfirmation
                   ? "Please respond to the tool confirmation above..."
                   : "Send a message..."
               }
-              className="flex w-full border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-base ring-offset-background placeholder:text-neutral-500 dark:placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300 dark:focus-visible:ring-neutral-700 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-neutral-900 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-2xl !text-base pb-10 dark:bg-neutral-900"
+              className="flex w-full border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-base ring-offset-background placeholder:text-neutral-500 dark:placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300 dark:focus-visible:ring-neutral-700 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-neutral-900 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-2xl pb-10 dark:bg-neutral-900"
               value={agentInput}
               onChange={(e) => {
                 handleAgentInputChange(e);
@@ -344,7 +400,8 @@ const ChatInterface: React.FC<{
                   e.key === "Enter" &&
                   !e.shiftKey &&
                   !e.nativeEvent.isComposing &&
-                  enabled && !isAgentLoading
+                  enabled &&
+                  !isAgentLoading
                 ) {
                   e.preventDefault();
                   handleAgentSubmit(e as unknown as React.FormEvent);
@@ -368,7 +425,12 @@ const ChatInterface: React.FC<{
               ) : (
                 <button
                   type="submit"
-                  disabled={!enabled || pendingToolCallConfirmation || !agentInput.trim() || isAgentLoading}
+                  disabled={
+                    !enabled ||
+                    pendingToolCallConfirmation ||
+                    !agentInput.trim() ||
+                    isAgentLoading
+                  }
                   className="inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full p-1.5 h-fit border border-neutral-200 dark:border-neutral-800"
                   aria-label="Send message"
                 >
@@ -392,17 +454,25 @@ export default function Chat() {
   // showDebug, textareaHeight, messagesEndRef are now part of ChatInterface or not needed at this level
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoadingUser, setIsLoadingUser] = useState(true);
-  const [currentThreadId, setCurrentThreadId] = useState<string>('default');
-  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
+  const [currentThreadId, setCurrentThreadId] = useState<string>("default");
+  // Sidebar should be open on desktop by default, closed on mobile
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
+    // Check if we're on desktop (this will be false during SSR, but that's ok)
+    if (typeof window !== "undefined") {
+      return window.innerWidth >= 768; // md breakpoint
+    }
+    return false;
+  });
 
   useEffect(() => {
     // Fetch user data when the component mounts
-    fetch('/auth/me')
-      .then(res => {
+    fetch("/auth/me")
+      .then((res) => {
         if (res.ok) {
           return res.json();
         }
-        if (res.status === 401) { // Not authenticated
+        if (res.status === 401) {
+          // Not authenticated
           setCurrentUser(null);
         }
         return null; // Or throw an error
@@ -412,8 +482,8 @@ export default function Chat() {
           setCurrentUser(data);
         }
       })
-      .catch(error => {
-        console.error('Error fetching user:', error);
+      .catch((error) => {
+        console.error("Error fetching user:", error);
         setCurrentUser(null);
       })
       .finally(() => {
@@ -435,9 +505,25 @@ export default function Chat() {
     localStorage.setItem("theme", theme);
   }, [theme]);
 
+  // Handle window resize to manage sidebar state
+  useEffect(() => {
+    const handleResize = () => {
+      const isDesktop = window.innerWidth >= 768;
+      if (isDesktop && !isSidebarOpen) {
+        setIsSidebarOpen(true);
+      } else if (!isDesktop && isSidebarOpen) {
+        setIsSidebarOpen(false);
+      }
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [isSidebarOpen]);
+
   // Removed scrollToBottom and related useEffects from here, as they are now in ChatInterface
 
-  const toggleTheme = () => { // Theme toggle can remain at app level
+  const toggleTheme = () => {
+    // Theme toggle can remain at app level
     const newTheme = theme === "dark" ? "light" : "dark";
     setTheme(newTheme);
   };
@@ -447,10 +533,39 @@ export default function Chat() {
     setIsSidebarOpen(false); // Close sidebar on mobile after selection
   };
 
-  const handleNewThread = () => {
+  const handleNewThread = async () => {
     const newThreadId = `thread_${Date.now()}`;
-    setCurrentThreadId(newThreadId);
-    setIsSidebarOpen(false); // Close sidebar on mobile after creation
+
+    try {
+      // Create thread on server immediately
+      const response = await fetch("/threads", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ threadId: newThreadId }),
+      });
+
+      if (response.ok) {
+        setCurrentThreadId(newThreadId);
+        setIsSidebarOpen(false); // Close sidebar on mobile after creation
+
+        // Refresh threads in sidebar if it's open
+        if (typeof (window as any).refreshThreads === "function") {
+          (window as any).refreshThreads();
+        }
+      } else {
+        console.error("Failed to create new thread");
+        // Fallback to old behavior
+        setCurrentThreadId(newThreadId);
+        setIsSidebarOpen(false);
+      }
+    } catch (error) {
+      console.error("Error creating new thread:", error);
+      // Fallback to old behavior
+      setCurrentThreadId(newThreadId);
+      setIsSidebarOpen(false);
+    }
   };
 
   // agent and useAgentChat hooks are now inside ChatInterface
@@ -459,7 +574,7 @@ export default function Chat() {
   return (
     <div className="h-[100vh] w-full flex bg-fixed overflow-hidden">
       <HasOpenAIKey />
-      
+
       {/* Sidebar */}
       {currentUser && (
         <Sidebar
@@ -471,97 +586,114 @@ export default function Chat() {
           currentUser={currentUser}
         />
       )}
-      
+
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         <div className="h-full w-full mx-auto max-w-4xl flex flex-col shadow-xl overflow-hidden relative border-l border-neutral-300 dark:border-neutral-800">
-        {/* App-level Header for Login/Logout and Title */}
-        <header className="p-4 border-b border-neutral-300 dark:border-neutral-800 flex justify-between items-center sticky top-0 z-20 bg-background dark:bg-neutral-950">
-          <div className="flex items-center gap-4">
-            {currentUser && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsSidebarOpen(true)}
-                className="md:hidden"
-              >
-                <List size={20} />
-              </Button>
-            )}
-            <h1 className="text-xl font-semibold">Chat Agent</h1>
-          </div>
-          {/* Theme and other controls can be moved here if they are app-level */}
-          {/* Or keep them in ChatInterface if they are chat-specific */}
-          {/* For now, only login/logout status in this header */}
-          <div>
-            {isLoadingUser ? (
-              <p className="text-sm">Loading user...</p>
-            ) : currentUser ? (
-              <div className="flex items-center gap-4">
-                <span className="text-sm">Welcome, {currentUser.username}!</span>
-                {/* Theme toggle button can be here if it's app-level */}
+          {/* App-level Header for Login/Logout and Title */}
+          <header className="p-4 border-b border-neutral-300 dark:border-neutral-800 flex justify-between items-center sticky top-0 z-20 bg-background dark:bg-neutral-950">
+            <div className="flex items-center gap-4">
+              {currentUser && (
                 <Button
                   variant="ghost"
-                  size="sm" // Adjusted size
-                  shape="square"
-                  className="rounded-full h-8 w-8" // Adjusted size
-                  onClick={toggleTheme}
-                  aria-label="Toggle theme"
+                  size="sm"
+                  onClick={() => setIsSidebarOpen(true)}
+                  className="md:hidden"
                 >
-                  {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+                  <List size={20} />
                 </Button>
-                <button 
-                  onClick={async () => {
-                    try {
-                      await fetch('/auth/logout', { method: 'GET' });
-                      setCurrentUser(null);
-                      window.location.reload();
-                    } catch (error) {
-                      console.error('Logout failed:', error);
-                      window.location.href = '/auth/logout';
-                    }
-                  }}
-                  className="px-3 py-1.5 text-sm bg-red-500 text-white rounded hover:bg-red-600"
-                >
-                  Logout
-                </button>
-              </div>
-            ) : (
-              <a href="/auth/github" className="px-3 py-1.5 text-sm bg-blue-500 text-white rounded hover:bg-blue-600">
-                Login with GitHub
-              </a>
-            )}
-          </div>
-        </header>
-
-        {/* Conditionally render ChatInterface or placeholder content */}
-        {isLoadingUser && (
-          <div className="flex-1 flex items-center justify-center p-4">
-            {/* Using a simple text loader for now, replace with <Loader /> if available and desired */}
-            <p className="text-xl text-muted-foreground">Loading session...</p>
-          </div>
-        )}
-
-        {!isLoadingUser && currentUser && (
-          <ChatInterface 
-            enabled={true} 
-            currentUser={currentUser} 
-            setCurrentUser={setCurrentUser}
-            currentThreadId={currentThreadId}
-            onThreadChange={handleThreadSelect}
-          />
-        )}
-
-        {!isLoadingUser && !currentUser && (
-          <div className="flex-1 flex items-center justify-center p-4 text-center">
+              )}
+              <h1 className="text-xl font-semibold">Chat Agent</h1>
+            </div>
+            {/* Theme and other controls can be moved here if they are app-level */}
+            {/* Or keep them in ChatInterface if they are chat-specific */}
+            {/* For now, only login/logout status in this header */}
             <div>
-              <Robot size={48} className="mx-auto text-muted-foreground mb-4" />
+              {isLoadingUser ? (
+                <p className="text-sm">Loading user...</p>
+              ) : currentUser ? (
+                <div className="flex items-center gap-4">
+                  <span className="text-sm">
+                    Welcome, {currentUser.username}!
+                  </span>
+                  {/* Theme toggle button can be here if it's app-level */}
+                  <Button
+                    variant="ghost"
+                    size="sm" // Adjusted size
+                    shape="square"
+                    className="rounded-full h-8 w-8" // Adjusted size
+                    onClick={toggleTheme}
+                    aria-label="Toggle theme"
+                  >
+                    {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+                  </Button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await fetch("/auth/logout", { method: "GET" });
+                        setCurrentUser(null);
+                        window.location.reload();
+                      } catch (error) {
+                        console.error("Logout failed:", error);
+                        window.location.href = "/auth/logout";
+                      }
+                    }}
+                    className="px-3 py-1.5 text-sm bg-red-500 text-white rounded hover:bg-red-600"
+                  >
+                    Logout
+                  </button>
+                </div>
+              ) : (
+                <a
+                  href="/auth/github"
+                  className="px-3 py-1.5 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
+                >
+                  Login with GitHub
+                </a>
+              )}
+            </div>
+          </header>
+
+          {/* Conditionally render ChatInterface or placeholder content */}
+          {isLoadingUser && (
+            <div className="flex-1 flex items-center justify-center p-4">
+              {/* Using a simple text loader for now, replace with <Loader /> if available and desired */}
               <p className="text-xl text-muted-foreground">
-                Please <a href="/auth/github" className="text-blue-500 hover:underline">log in</a> to start chatting.
+                Loading session...
               </p>
             </div>
-          </div>
-        )}
+          )}
+
+          {!isLoadingUser && currentUser && (
+            <ChatInterface
+              enabled={true}
+              currentUser={currentUser}
+              setCurrentUser={setCurrentUser}
+              currentThreadId={currentThreadId}
+              onThreadChange={handleThreadSelect}
+            />
+          )}
+
+          {!isLoadingUser && !currentUser && (
+            <div className="flex-1 flex items-center justify-center p-4 text-center">
+              <div>
+                <Robot
+                  size={48}
+                  className="mx-auto text-muted-foreground mb-4"
+                />
+                <p className="text-xl text-muted-foreground">
+                  Please{" "}
+                  <a
+                    href="/auth/github"
+                    className="text-blue-500 hover:underline"
+                  >
+                    log in
+                  </a>{" "}
+                  to start chatting.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

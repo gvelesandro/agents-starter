@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Button } from '@/components/button/Button';
-import { Plus, Chat, Trash, X } from '@phosphor-icons/react';
+import React, { useState, useEffect } from "react";
+import { Button } from "@/components/button/Button";
+import { Plus, Chat, Trash, X } from "@phosphor-icons/react";
 
 interface Thread {
   id: string;
@@ -32,13 +32,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (isOpen && currentUser) {
+    if (currentUser) {
       loadThreads();
-    } else if (!currentUser) {
+    } else {
       setThreads([]);
       setIsLoading(false);
     }
-  }, [isOpen, currentUser]);
+  }, [currentUser]);
+
+  // Also load threads when sidebar opens (for mobile)
+  useEffect(() => {
+    if (isOpen && currentUser && threads.length === 0) {
+      loadThreads();
+    }
+  }, [isOpen, currentUser, threads.length]);
 
   // Expose refresh function to parent
   useEffect(() => {
@@ -49,35 +56,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [onThreadsChange]);
 
   const loadThreads = async () => {
-    console.log('Loading threads...');
     setIsLoading(true);
     try {
-      const response = await fetch('/threads');
-      console.log('Threads response:', response.status, response.statusText);
-      
+      const response = await fetch("/threads");
+
       if (response.ok) {
         const data = await response.json();
-        console.log('Threads data:', data);
         setThreads(Array.isArray(data) ? data : []);
       } else {
-        console.error('Failed to load threads, status:', response.status);
-        if (response.status === 401 || response.status === 302) {
-          console.log('Not authenticated, will show empty thread list');
-        }
+        console.error("Failed to load threads, status:", response.status);
         setThreads([]);
       }
     } catch (error) {
-      console.error('Error loading threads:', error);
+      console.error("Error loading threads:", error);
       setThreads([]);
     } finally {
-      console.log('Threads loading finished');
       setIsLoading(false);
     }
   };
 
   const deleteThread = async (threadId: string, event: React.MouseEvent) => {
     event.stopPropagation();
-    
+
     if (threads.length <= 1) {
       // Don't allow deleting the last thread
       return;
@@ -85,24 +85,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     try {
       const response = await fetch(`/threads/${threadId}`, {
-        method: 'DELETE',
+        method: "DELETE",
       });
 
       if (response.ok) {
-        setThreads(prev => prev.filter(t => t.id !== threadId));
-        
+        setThreads((prev) => prev.filter((t) => t.id !== threadId));
+
         // If we deleted the current thread, switch to the first remaining thread
         if (threadId === currentThreadId) {
-          const remainingThreads = threads.filter(t => t.id !== threadId);
+          const remainingThreads = threads.filter((t) => t.id !== threadId);
           if (remainingThreads.length > 0) {
             onThreadSelect(remainingThreads[0].id);
           }
         }
       } else {
-        console.error('Failed to delete thread');
+        console.error("Failed to delete thread");
       }
     } catch (error) {
-      console.error('Error deleting thread:', error);
+      console.error("Error deleting thread:", error);
     }
   };
 
@@ -110,13 +110,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const date = new Date(dateString);
     const now = new Date();
     const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
-    
+
     if (diffInHours < 24) {
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return date.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
     } else if (diffInHours < 24 * 7) {
-      return date.toLocaleDateString([], { weekday: 'short' });
+      return date.toLocaleDateString([], { weekday: "short" });
     } else {
-      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      return date.toLocaleDateString([], { month: "short", day: "numeric" });
     }
   };
 
@@ -124,20 +127,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <>
       {/* Backdrop */}
       {isOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 z-40 md:hidden"
           onClick={onClose}
         />
       )}
-      
+
       {/* Sidebar */}
-      <div className={`
+      <div
+        className={`
         fixed top-0 left-0 h-full w-80 bg-white dark:bg-neutral-900 
         border-r border-neutral-200 dark:border-neutral-700 
         transform transition-transform duration-300 ease-in-out z-50
-        ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+        ${isOpen ? "translate-x-0" : "-translate-x-full"}
         md:relative md:translate-x-0 md:z-auto
-      `}>
+      `}
+      >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-neutral-200 dark:border-neutral-700">
           <h2 className="text-lg font-semibold">Conversations</h2>
@@ -171,7 +176,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ) : threads.length === 0 ? (
             <div className="p-4 text-center text-neutral-500">
               <div className="mb-2">No conversations yet</div>
-              <div className="text-xs text-neutral-400">Start a new conversation to see it here</div>
+              <div className="text-xs text-neutral-400">
+                Start a new conversation to see it here
+              </div>
             </div>
           ) : (
             <div className="p-2 space-y-1">
@@ -182,14 +189,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className={`
                     group flex items-center justify-between p-3 rounded-lg cursor-pointer
                     hover:bg-neutral-100 dark:hover:bg-neutral-800
-                    ${currentThreadId === thread.id 
-                      ? 'bg-neutral-100 dark:bg-neutral-800 border-l-2 border-blue-500' 
-                      : ''
+                    ${
+                      currentThreadId === thread.id
+                        ? "bg-neutral-100 dark:bg-neutral-800 border-l-2 border-blue-500"
+                        : ""
                     }
                   `}
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <Chat size={16} className="text-neutral-500 flex-shrink-0" />
+                    <Chat
+                      size={16}
+                      className="text-neutral-500 flex-shrink-0"
+                    />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium truncate">
                         {thread.title}
@@ -199,7 +210,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       </div>
                     </div>
                   </div>
-                  
+
                   {threads.length > 1 && (
                     <Button
                       variant="ghost"
