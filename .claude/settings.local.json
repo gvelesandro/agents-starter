@@ -5,7 +5,18 @@
       "Bash(grep:*)",
       "Bash(npm run dev:*)",
       "Bash(npm test)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(npx wrangler types)",
+      "Bash(npx tsc:*)",
+      "Bash(curl:*)",
+      "Bash(pkill:*)",
+      "Bash(rm:*)",
+      "Bash(true)",
+      "Bash(lsof:*)",
+      "Bash(find:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run:*)",
+      "Bash(tsc --noEmit)"
     ]
   },
   "enableAllProjectMcpServers": false

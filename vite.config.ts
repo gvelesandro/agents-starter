@@ -14,10 +14,11 @@ export default defineConfig({
   server: {
     proxy: {
       // Proxy API requests to the Wrangler dev server
-      '/auth': 'http://localhost:8787',
-      '/chat': 'http://localhost:8787',
-      '/check-open-ai-key': 'http://localhost:8787',
-      '/agents': 'http://localhost:8787',
+      "/auth": "http://localhost:8787",
+      "/chat": "http://localhost:8787",
+      "/check-open-ai-key": "http://localhost:8787",
+      "/agents": "http://localhost:8787",
+      "/threads": "http://localhost:8787",
     },
   },
 });

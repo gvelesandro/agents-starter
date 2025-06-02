@@ -5,23 +5,23 @@ import {
 } from "cloudflare:test";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Chat } from "../src/server";
-import { type SessionData } from '../src/auth/session';
-import type { Message } from 'ai';
+import { type SessionData } from "../src/auth/session";
+import type { Message } from "ai";
 
 // Mock getSession from src/auth/session.ts
-vi.mock('../src/auth/session', async (importOriginal) => {
-  const actual = await importOriginal() as object;
+vi.mock("../src/auth/session", async (importOriginal) => {
+  const actual = (await importOriginal()) as object;
   return {
     ...actual,
     getSession: vi.fn(),
   };
 });
-const { getSession } = await import('../src/auth/session');
+const { getSession } = await import("../src/auth/session");
 const mockGetSession = getSession as vi.MockedFunction<typeof getSession>;
 
 // Mock AI SDK functions
-vi.mock('ai', async (importOriginal) => {
-  const actual = await importOriginal() as object;
+vi.mock("ai", async (importOriginal) => {
+  const actual = (await importOriginal()) as object;
   return {
     ...actual,
     createDataStreamResponse: vi.fn().mockImplementation(({ execute }) => {
@@ -33,28 +33,38 @@ vi.mock('ai', async (importOriginal) => {
             close: vi.fn(),
           };
           await execute(mockDataStream);
-        }
+        },
       };
     }),
     streamText: vi.fn().mockImplementation(({ onFinish, onStepFinish }) => {
       // Mock implementation that simulates a successful completion
       const mockMessages: Message[] = [
-        { id: '1', role: 'user', content: 'Test message', createdAt: new Date() },
-        { id: '2', role: 'assistant', content: 'Test response', createdAt: new Date() },
+        {
+          id: "1",
+          role: "user",
+          content: "Test message",
+          createdAt: new Date(),
+        },
+        {
+          id: "2",
+          role: "assistant",
+          content: "Test response",
+          createdAt: new Date(),
+        },
       ];
-      
+
       // Call onFinish to simulate completion
       if (onFinish) {
         setTimeout(() => {
           onFinish({
             messages: mockMessages,
-            finishReason: 'stop',
+            finishReason: "stop",
             usage: { promptTokens: 10, completionTokens: 20 },
             experimental_providerMetadata: undefined,
           });
         }, 10);
       }
-      
+
       return {
         mergeIntoDataStream: vi.fn(),
       };
@@ -84,7 +94,7 @@ const createTestKvStore = () => {
   } as unknown as KVNamespace;
 };
 
-describe('Chat Agent KV Storage Integration', () => {
+describe("Chat Agent KV Storage Integration", () => {
   let mockKvStore: KVNamespace;
   let mockEnv: Env;
   let chatAgent: Chat;
@@ -94,220 +104,222 @@ describe('Chat Agent KV Storage Integration', () => {
     mockKvStore = createTestKvStore();
     mockEnv = {
       ...testEnv,
-      GITHUB_CLIENT_ID: 'test_client_id',
-      GITHUB_CLIENT_SECRET: 'test_client_secret',
-      GITHUB_AUTHORIZED_USERNAMES: '',
-      SESSION_SECRET: 'test_session_secret',
-      OPENAI_API_KEY: 'test_openai_key',
+      GITHUB_CLIENT_ID: "test_client_id",
+      GITHUB_CLIENT_SECRET: "test_client_secret",
+      GITHUB_AUTHORIZED_USERNAMES: "",
+      SESSION_SECRET: "test_session_secret",
+      OPENAI_API_KEY: "test_openai_key",
       CHAT_HISTORY_KV: mockKvStore,
     } as Env;
 
     // Mock session for testing
-    const mockUserSession: SessionData = { 
-      userId: 'test-user-123', 
-      username: 'testuser' 
+    const mockUserSession: SessionData = {
+      userId: "test-user-123",
+      username: "testuser",
     };
     mockGetSession.mockResolvedValue(mockUserSession);
   });
 
-  describe('Chat Message Persistence', () => {
-    it('should save user messages immediately when onChatMessage is called', async () => {
+  describe("Chat Message Persistence", () => {
+    it("should save user messages immediately when onChatMessage is called", async () => {
       // Create a chat agent instance
       chatAgent = new Chat({ env: mockEnv });
-      
+
       // Add a test message to the agent
       const testMessage: Message = {
-        id: 'test-msg-1',
-        role: 'user',
-        content: 'Hello, this is a test message',
+        id: "test-msg-1",
+        role: "user",
+        content: "Hello, this is a test message",
         createdAt: new Date(),
       };
-      
+
       // Manually set the messages array (simulating what happens in real usage)
       chatAgent.messages = [testMessage];
-      
+
       // Mock request with session
-      const mockRequest = new Request('http://localhost/test');
+      const mockRequest = new Request("http://localhost/test");
       (chatAgent as any).context = { request: mockRequest };
 
       // Call onChatMessage - this should save the message to KV
       const onFinishCallback = vi.fn();
-      
+
       try {
         await chatAgent.onChatMessage(onFinishCallback);
-        
+
         // Wait a bit for async operations
-        await new Promise(resolve => setTimeout(resolve, 50));
-        
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
         // Verify that the message was saved to KV
         expect(mockKvStore.put).toHaveBeenCalledWith(
-          'test-user-123',
-          expect.stringContaining('Hello, this is a test message')
+          "test-user-123",
+          expect.stringContaining("Hello, this is a test message")
         );
-        
+
         // Verify the saved data structure
         const putCalls = (mockKvStore.put as any).mock.calls;
         expect(putCalls.length).toBeGreaterThan(0);
-        
+
         const savedData = putCalls[0][1];
         const savedMessages: Message[] = JSON.parse(savedData);
         expect(savedMessages).toHaveLength(1);
-        expect(savedMessages[0].content).toBe('Hello, this is a test message');
-        expect(savedMessages[0].role).toBe('user');
+        expect(savedMessages[0].content).toBe("Hello, this is a test message");
+        expect(savedMessages[0].role).toBe("user");
       } catch (error) {
-        console.error('Test error:', error);
+        console.error("Test error:", error);
         throw error;
       }
     });
 
-    it('should save both user and assistant messages on completion', async () => {
+    it("should save both user and assistant messages on completion", async () => {
       chatAgent = new Chat({ env: mockEnv });
-      
+
       const userMessage: Message = {
-        id: 'user-msg',
-        role: 'user',
-        content: 'What is the weather today?',
+        id: "user-msg",
+        role: "user",
+        content: "What is the weather today?",
         createdAt: new Date(),
       };
-      
+
       chatAgent.messages = [userMessage];
-      
-      const mockRequest = new Request('http://localhost/test');
+
+      const mockRequest = new Request("http://localhost/test");
       (chatAgent as any).context = { request: mockRequest };
 
       const onFinishCallback = vi.fn();
-      
+
       await chatAgent.onChatMessage(onFinishCallback);
-      
+
       // Wait for the mocked streamText onFinish to be called
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
       // Verify that messages were saved multiple times (immediate save + completion save)
       expect(mockKvStore.put).toHaveBeenCalled();
-      
+
       // Check the last save call should contain both user and assistant messages
       const putCalls = (mockKvStore.put as any).mock.calls;
       const lastSave = putCalls[putCalls.length - 1];
       const lastSavedData = JSON.parse(lastSave[1]);
-      
+
       // Should have at least the user message, and possibly assistant response
       expect(lastSavedData.length).toBeGreaterThanOrEqual(1);
-      expect(lastSavedData[0].content).toBe('What is the weather today?');
+      expect(lastSavedData[0].content).toBe("What is the weather today?");
     });
 
-    it('should handle KV storage failures gracefully', async () => {
+    it("should handle KV storage failures gracefully", async () => {
       // Create a KV store that fails on put
       const failingKvStore = {
         ...mockKvStore,
-        put: vi.fn().mockRejectedValue(new Error('KV storage failed')),
+        put: vi.fn().mockRejectedValue(new Error("KV storage failed")),
       } as unknown as KVNamespace;
 
       const envWithFailingKv = { ...mockEnv, CHAT_HISTORY_KV: failingKvStore };
       chatAgent = new Chat({ env: envWithFailingKv });
-      
+
       const testMessage: Message = {
-        id: 'test-msg',
-        role: 'user',
-        content: 'This should fail to save',
+        id: "test-msg",
+        role: "user",
+        content: "This should fail to save",
         createdAt: new Date(),
       };
-      
+
       chatAgent.messages = [testMessage];
-      
-      const mockRequest = new Request('http://localhost/test');
+
+      const mockRequest = new Request("http://localhost/test");
       (chatAgent as any).context = { request: mockRequest };
 
       // This should not throw an error, but handle the failure gracefully
       const onFinishCallback = vi.fn();
-      await expect(chatAgent.onChatMessage(onFinishCallback)).resolves.toBeDefined();
-      
+      await expect(
+        chatAgent.onChatMessage(onFinishCallback)
+      ).resolves.toBeDefined();
+
       // Verify that the KV put was attempted
       expect(failingKvStore.put).toHaveBeenCalled();
     });
 
-    it('should not save messages when user is not authenticated', async () => {
+    it("should not save messages when user is not authenticated", async () => {
       // Mock no session (user not authenticated)
       mockGetSession.mockResolvedValue(null);
-      
+
       chatAgent = new Chat({ env: mockEnv });
-      
+
       const testMessage: Message = {
-        id: 'test-msg',
-        role: 'user',
-        content: 'This should not be saved',
+        id: "test-msg",
+        role: "user",
+        content: "This should not be saved",
         createdAt: new Date(),
       };
-      
+
       chatAgent.messages = [testMessage];
-      
-      const mockRequest = new Request('http://localhost/test');
+
+      const mockRequest = new Request("http://localhost/test");
       (chatAgent as any).context = { request: mockRequest };
 
       const onFinishCallback = vi.fn();
       await chatAgent.onChatMessage(onFinishCallback);
-      
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
       // Verify that no messages were saved to KV
       expect(mockKvStore.put).not.toHaveBeenCalled();
     });
 
-    it('should not save messages when KV is not available', async () => {
+    it("should not save messages when KV is not available", async () => {
       const envWithoutKv = { ...mockEnv, CHAT_HISTORY_KV: undefined as any };
       chatAgent = new Chat({ env: envWithoutKv });
-      
+
       const testMessage: Message = {
-        id: 'test-msg',
-        role: 'user',
-        content: 'This should not be saved',
+        id: "test-msg",
+        role: "user",
+        content: "This should not be saved",
         createdAt: new Date(),
       };
-      
+
       chatAgent.messages = [testMessage];
-      
-      const mockRequest = new Request('http://localhost/test');
+
+      const mockRequest = new Request("http://localhost/test");
       (chatAgent as any).context = { request: mockRequest };
 
       const onFinishCallback = vi.fn();
       await chatAgent.onChatMessage(onFinishCallback);
-      
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
       // Verify that no messages were saved (because KV is not available)
       expect(mockKvStore.put).not.toHaveBeenCalled();
     });
   });
 
-  describe('Message Retrieval After Save', () => {
-    it('should be able to retrieve saved messages', async () => {
+  describe("Message Retrieval After Save", () => {
+    it("should be able to retrieve saved messages", async () => {
       chatAgent = new Chat({ env: mockEnv });
-      
+
       const testMessages: Message[] = [
         {
-          id: 'msg-1',
-          role: 'user',
-          content: 'First message',
+          id: "msg-1",
+          role: "user",
+          content: "First message",
           createdAt: new Date(),
         },
         {
-          id: 'msg-2',
-          role: 'assistant',
-          content: 'First response',
+          id: "msg-2",
+          role: "assistant",
+          content: "First response",
           createdAt: new Date(),
         },
       ];
-      
+
       // Save messages directly to KV (simulating what the agent would do)
-      await mockKvStore.put('test-user-123', JSON.stringify(testMessages));
-      
+      await mockKvStore.put("test-user-123", JSON.stringify(testMessages));
+
       // Now retrieve them
-      const retrieved = await mockKvStore.get('test-user-123');
+      const retrieved = await mockKvStore.get("test-user-123");
       expect(retrieved).toBeTruthy();
-      
+
       const parsedMessages: Message[] = JSON.parse(retrieved!);
       expect(parsedMessages).toHaveLength(2);
-      expect(parsedMessages[0].content).toBe('First message');
-      expect(parsedMessages[1].content).toBe('First response');
+      expect(parsedMessages[0].content).toBe("First message");
+      expect(parsedMessages[1].content).toBe("First response");
     });
   });
 });
