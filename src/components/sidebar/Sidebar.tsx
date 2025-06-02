@@ -30,6 +30,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [lastRefreshTime, setLastRefreshTime] = useState<number>(Date.now());
 
   useEffect(() => {
     if (currentUser) {
@@ -47,13 +48,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   }, [isOpen, currentUser, threads.length]);
 
-  // Expose refresh function to parent
+  // Expose refresh function to parent and globally
   useEffect(() => {
-    if (onThreadsChange) {
-      // Create a function that can be called to refresh threads
-      (window as any).refreshThreads = loadThreads;
-    }
-  }, [onThreadsChange]);
+    // Create a function that can be called to refresh threads
+    (window as any).refreshThreads = loadThreads;
+  }, []);
+
+  // Periodic refresh for active conversations (every 5 seconds)
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const interval = setInterval(() => {
+      // Only refresh if it's been more than 4 seconds since last refresh
+      // This prevents too frequent refreshes but ensures new conversations appear
+      const timeSinceLastRefresh = Date.now() - lastRefreshTime;
+      if (timeSinceLastRefresh > 4000) {
+        loadThreads();
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [currentUser, lastRefreshTime]);
 
   const loadThreads = async () => {
     setIsLoading(true);
@@ -63,6 +78,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       if (response.ok) {
         const data = await response.json();
         setThreads(Array.isArray(data) ? data : []);
+        setLastRefreshTime(Date.now());
       } else {
         console.error("Failed to load threads, status:", response.status);
         setThreads([]);

@@ -152,7 +152,7 @@ export class Chat extends AIChatAgent<Env> {
 
   async onChatMessage(
     onFinish: StreamTextOnFinishCallback<ToolSet>,
-    options?: { abortSignal?: AbortSignal }
+    _options?: { abortSignal?: AbortSignal }
   ) {
     const session = this.userSession;
     const userId = session?.userId;
@@ -253,7 +253,7 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
 
     return dataStreamResponse;
   }
-  async executeTask(description: string, task: Schedule<string>) {
+  async executeTask(description: string, _task: Schedule<string>) {
     const taskMessage: Message = {
       id: generateId(),
       role: "user",
@@ -331,6 +331,11 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
       }
 
       await kv.put(threadsKey, JSON.stringify(existingThreads));
+
+      // Notify frontend about thread update
+      console.log(
+        `[THREAD_UPDATED] ${userId}:${threadId} - Thread metadata updated`
+      );
     } catch (e) {
       console.error(`Failed to update thread metadata for user ${userId}:`, e);
     }

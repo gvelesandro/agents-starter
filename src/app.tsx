@@ -46,12 +46,14 @@ const ChatInterface: React.FC<{
   setCurrentUser: React.Dispatch<React.SetStateAction<User | null>>;
   currentThreadId: string;
   onThreadChange: (threadId: string) => void;
+  createThreadOnServer: (threadId: string) => Promise<void>;
 }> = ({
   enabled,
   currentUser,
   setCurrentUser,
   currentThreadId,
   onThreadChange,
+  createThreadOnServer,
 }) => {
   // State to control when we can safely use the agent chat hook
   const [canUseAgentChat, setCanUseAgentChat] = useState(false);
@@ -130,6 +132,12 @@ const ChatInterface: React.FC<{
         err.message.toLowerCase().includes("unauthorized")
       ) {
         setCurrentUser(null);
+      }
+    },
+    onFinish: () => {
+      // Refresh threads in sidebar when conversation finishes
+      if (typeof (window as any).refreshThreads === "function") {
+        (window as any).refreshThreads();
       }
     },
   });
@@ -369,10 +377,30 @@ const ChatInterface: React.FC<{
         onSubmit={(e) => {
           e.preventDefault();
           if (!enabled || isAgentLoading) return;
+
+          // Check if this is the first message in a new thread
+          const isFirstMessage =
+            agentMessages.length === 0 &&
+            (!historyMessages || historyMessages.length === 0);
+
+          // If this is a new thread (not default), create it on the server first
+          if (isFirstMessage && currentThreadId !== "default") {
+            createThreadOnServer(currentThreadId);
+          }
+
           handleAgentSubmit(e, {
             data: { annotations: { hello: "world" } },
           });
           setTextareaHeight("auto");
+
+          // If this is the first message, refresh threads after a short delay
+          if (isFirstMessage) {
+            setTimeout(() => {
+              if (typeof (window as any).refreshThreads === "function") {
+                (window as any).refreshThreads();
+              }
+            }, 1000); // Give time for the message to be processed
+          }
         }}
         className="p-3 bg-neutral-50 absolute bottom-0 left-0 right-0 z-10 border-t border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900"
       >
@@ -404,8 +432,30 @@ const ChatInterface: React.FC<{
                   !isAgentLoading
                 ) {
                   e.preventDefault();
+
+                  // Check if this is the first message in a new thread
+                  const isFirstMessage =
+                    agentMessages.length === 0 &&
+                    (!historyMessages || historyMessages.length === 0);
+
+                  // If this is a new thread (not default), create it on the server first
+                  if (isFirstMessage && currentThreadId !== "default") {
+                    createThreadOnServer(currentThreadId);
+                  }
+
                   handleAgentSubmit(e as unknown as React.FormEvent);
                   setTextareaHeight("auto");
+
+                  // If this is the first message, refresh threads after a short delay
+                  if (isFirstMessage) {
+                    setTimeout(() => {
+                      if (
+                        typeof (window as any).refreshThreads === "function"
+                      ) {
+                        (window as any).refreshThreads();
+                      }
+                    }, 1000);
+                  }
                 }
               }}
               rows={2}
@@ -533,38 +583,34 @@ export default function Chat() {
     setIsSidebarOpen(false); // Close sidebar on mobile after selection
   };
 
-  const handleNewThread = async () => {
+  const handleNewThread = () => {
+    // Just generate a new thread ID and switch to it
+    // Don't create it on the server until the user sends a message
     const newThreadId = `thread_${Date.now()}`;
+    setCurrentThreadId(newThreadId);
+    setIsSidebarOpen(false); // Close sidebar on mobile after creation
+  };
 
+  const createThreadOnServer = async (threadId: string) => {
     try {
-      // Create thread on server immediately
       const response = await fetch("/threads", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ threadId: newThreadId }),
+        body: JSON.stringify({ threadId }),
       });
 
       if (response.ok) {
-        setCurrentThreadId(newThreadId);
-        setIsSidebarOpen(false); // Close sidebar on mobile after creation
-
-        // Refresh threads in sidebar if it's open
+        // Refresh threads in sidebar
         if (typeof (window as any).refreshThreads === "function") {
           (window as any).refreshThreads();
         }
       } else {
-        console.error("Failed to create new thread");
-        // Fallback to old behavior
-        setCurrentThreadId(newThreadId);
-        setIsSidebarOpen(false);
+        console.error("Failed to create new thread on server");
       }
     } catch (error) {
-      console.error("Error creating new thread:", error);
-      // Fallback to old behavior
-      setCurrentThreadId(newThreadId);
-      setIsSidebarOpen(false);
+      console.error("Error creating thread on server:", error);
     }
   };
 
@@ -666,11 +712,13 @@ export default function Chat() {
 
           {!isLoadingUser && currentUser && (
             <ChatInterface
+              key={`${currentUser.userId}-${currentThreadId}`}
               enabled={true}
               currentUser={currentUser}
               setCurrentUser={setCurrentUser}
               currentThreadId={currentThreadId}
               onThreadChange={handleThreadSelect}
+              createThreadOnServer={createThreadOnServer}
             />
           )}
 
