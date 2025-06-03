@@ -367,9 +367,11 @@ export default {
     // For local dev with .dev.vars, process.env might work due to nodejs_compat flag,
     // but `env.VAR_NAME` is the standard way in deployed workers.
 
-    const GITHUB_CLIENT_ID = env.GITHUB_CLIENT_ID;
-    const GITHUB_CLIENT_SECRET = env.GITHUB_CLIENT_SECRET;
-    const GITHUB_AUTHORIZED_USERNAMES = (env.GITHUB_AUTHORIZED_USERNAMES || "")
+    const AUTH_GITHUB_CLIENT_ID = env.AUTH_GITHUB_CLIENT_ID;
+    const AUTH_GITHUB_CLIENT_SECRET = env.AUTH_GITHUB_CLIENT_SECRET;
+    const AUTH_GITHUB_AUTHORIZED_USERNAMES = (
+      env.AUTH_GITHUB_AUTHORIZED_USERNAMES || ""
+    )
       .split(",")
       .map((u) => u.trim())
       .filter((u) => u);
@@ -378,14 +380,14 @@ export default {
 
     // Route: /auth/github - Redirect to GitHub for login
     if (url.pathname === "/auth/github") {
-      if (!GITHUB_CLIENT_ID) {
-        console.error("GITHUB_CLIENT_ID is not set.");
+      if (!AUTH_GITHUB_CLIENT_ID) {
+        console.error("AUTH_GITHUB_CLIENT_ID is not set.");
         return new Response("GitHub OAuth not configured.", { status: 500 });
       }
 
       const state = generateId(); // Simple CSRF token
       const githubAuthUrl = new URL("https://github.com/login/oauth/authorize");
-      githubAuthUrl.searchParams.set("client_id", GITHUB_CLIENT_ID);
+      githubAuthUrl.searchParams.set("client_id", AUTH_GITHUB_CLIENT_ID);
       githubAuthUrl.searchParams.set(
         "redirect_uri",
         `${url.origin}/auth/github/callback`
@@ -412,7 +414,7 @@ export default {
 
     // Route: /auth/github/callback - Handle callback from GitHub
     if (url.pathname === "/auth/github/callback") {
-      if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
+      if (!AUTH_GITHUB_CLIENT_ID || !AUTH_GITHUB_CLIENT_SECRET) {
         console.error("GitHub OAuth credentials are not fully configured.");
         return new Response("GitHub OAuth not configured.", { status: 500 });
       }
@@ -462,8 +464,8 @@ export default {
               Accept: "application/json",
             },
             body: JSON.stringify({
-              client_id: GITHUB_CLIENT_ID,
-              client_secret: GITHUB_CLIENT_SECRET,
+              client_id: AUTH_GITHUB_CLIENT_ID,
+              client_secret: AUTH_GITHUB_CLIENT_SECRET,
               code: code,
               redirect_uri: `${url.origin}/auth/github/callback`,
             }),
@@ -530,8 +532,8 @@ export default {
 
         // Authorization check
         if (
-          GITHUB_AUTHORIZED_USERNAMES.length > 0 &&
-          !GITHUB_AUTHORIZED_USERNAMES.includes(githubUser.login)
+          AUTH_GITHUB_AUTHORIZED_USERNAMES.length > 0 &&
+          !AUTH_GITHUB_AUTHORIZED_USERNAMES.includes(githubUser.login)
         ) {
           console.warn(`User ${githubUser.login} is not authorized.`);
           // Optionally, redirect to a specific "unauthorized" page

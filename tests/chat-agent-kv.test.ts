@@ -104,9 +104,9 @@ describe("Chat Agent KV Storage Integration", () => {
     mockKvStore = createTestKvStore();
     mockEnv = {
       ...testEnv,
-      GITHUB_CLIENT_ID: "test_client_id",
-      GITHUB_CLIENT_SECRET: "test_client_secret",
-      GITHUB_AUTHORIZED_USERNAMES: "",
+      AUTH_GITHUB_CLIENT_ID: "test_client_id",
+      AUTH_GITHUB_CLIENT_SECRET: "test_client_secret",
+      AUTH_GITHUB_AUTHORIZED_USERNAMES: "",
       SESSION_SECRET: "test_session_secret",
       OPENAI_API_KEY: "test_openai_key",
       CHAT_HISTORY_KV: mockKvStore,

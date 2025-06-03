@@ -5,9 +5,9 @@ declare namespace Cloudflare {
 	interface Env {
 		CHAT_HISTORY_KV: KVNamespace;
 		OPENAI_API_KEY: string;
-		GITHUB_AUTHORIZED_USERNAMES: string;
-		GITHUB_CLIENT_ID: string;
-		GITHUB_CLIENT_SECRET: string;
+		AUTH_GITHUB_AUTHORIZED_USERNAMES: string;
+		AUTH_GITHUB_CLIENT_ID: string;
+		AUTH_GITHUB_CLIENT_SECRET: string;
 		SESSION_SECRET: string;
 		Chat: DurableObjectNamespace<import("./src/server").Chat>;
 	}
@@ -17,7 +17,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "OPENAI_API_KEY" | "GITHUB_AUTHORIZED_USERNAMES" | "GITHUB_CLIENT_ID" | "GITHUB_CLIENT_SECRET" | "SESSION_SECRET">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "OPENAI_API_KEY" | "AUTH_GITHUB_AUTHORIZED_USERNAMES" | "AUTH_GITHUB_CLIENT_ID" | "AUTH_GITHUB_CLIENT_SECRET" | "SESSION_SECRET">> {}
 }
 
 // Begin runtime types
