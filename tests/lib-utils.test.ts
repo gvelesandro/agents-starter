@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 vi.mock("clsx", () => ({
-  default: (...args: any[]) => args.filter(Boolean).join(" "),
+  clsx: (inputs: any[]) => inputs.filter(Boolean).join(" "),
 }));
 
 vi.mock("tailwind-merge", () => ({

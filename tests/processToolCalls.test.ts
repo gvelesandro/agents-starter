@@ -83,7 +83,7 @@ describe("processToolCalls", () => {
       tools: { t: {} } as any,
       dataStream: writer,
       messages,
-      executions: {},
+      executions: { t: vi.fn() },
     });
     expect(writer.write).toHaveBeenCalled();
     expect(out[out.length - 1].parts[0].toolInvocation.result).toContain("denied");

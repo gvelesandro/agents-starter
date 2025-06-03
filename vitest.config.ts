@@ -12,5 +12,11 @@ export default defineWorkersConfig({
         wrangler: { configPath: "./wrangler.jsonc" },
       },
     },
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "json", "html"],
+      include: ["src/**/*"],
+      exclude: ["src/**/*.test.ts", "src/**/*.spec.ts"],
+    },
   },
 });

@@ -16,7 +16,9 @@
       "Bash(find:*)",
       "Bash(npm run build:*)",
       "Bash(npm run:*)",
-      "Bash(tsc --noEmit)"
+      "Bash(tsc --noEmit)",
+      "Bash(npx vitest:*)",
+      "Bash(npm test:*)"
     ]
   },
   "enableAllProjectMcpServers": false

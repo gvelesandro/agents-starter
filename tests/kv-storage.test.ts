@@ -171,10 +171,12 @@ describe("KV Storage Integration Tests", () => {
           createdAt: new Date(),
         },
       ];
-      await mockKvStore.put("api-test-user", JSON.stringify(testMessages));
+      await mockKvStore.put("api-test-user:thread:default", JSON.stringify(testMessages));
 
       // Test loading through API
-      const request = new Request("http://localhost/chat/history");
+      const request = new Request("http://localhost/chat/history", {
+        headers: { "Accept": "application/json" }
+      });
       const ctx = createExecutionContext();
       const response = await worker.fetch(request, mockEnv, ctx);
       await waitOnExecutionContext(ctx);
@@ -208,19 +210,23 @@ describe("KV Storage Integration Tests", () => {
       ];
 
       // Save first set
-      await mockKvStore.put("concurrent-user", JSON.stringify(messages1));
+      await mockKvStore.put("concurrent-user:thread:default", JSON.stringify(messages1));
 
       // Load while saving (should get first set)
-      const request1 = new Request("http://localhost/chat/history");
+      const request1 = new Request("http://localhost/chat/history", {
+        headers: { "Accept": "application/json" }
+      });
       const ctx1 = createExecutionContext();
       const response1 = await worker.fetch(request1, mockEnv, ctx1);
       await waitOnExecutionContext(ctx1);
 
       // Save second set
-      await mockKvStore.put("concurrent-user", JSON.stringify(messages2));
+      await mockKvStore.put("concurrent-user:thread:default", JSON.stringify(messages2));
 
       // Load again (should get second set)
-      const request2 = new Request("http://localhost/chat/history");
+      const request2 = new Request("http://localhost/chat/history", {
+        headers: { "Accept": "application/json" }
+      });
       const ctx2 = createExecutionContext();
       const response2 = await worker.fetch(request2, mockEnv, ctx2);
       await waitOnExecutionContext(ctx2);
