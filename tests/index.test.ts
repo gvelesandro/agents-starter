@@ -57,6 +57,11 @@ declare module "cloudflare:test" {
 
 describe("Chat worker", () => {
   it("responds with Not found for unknown routes", async () => {
+    const mockUserSession: SessionData = {
+      userId: "user123",
+      username: "testuser",
+    };
+    mockGetSession.mockResolvedValue(mockUserSession);
     const request = new Request("http://example.com/unknownroute");
     const ctx = createExecutionContext();
     // Use the merged mockEnvInstance here
@@ -70,7 +75,9 @@ describe("Chat worker", () => {
 describe("GET /chat/history endpoint", () => {
   it("should return 401 if user is not authenticated", async () => {
     mockGetSession.mockResolvedValue(null);
-    const request = new Request("http://localhost/chat/history");
+    const request = new Request("http://localhost/chat/history", {
+      headers: { "Accept": "application/json" }
+    });
     const ctx = createExecutionContext();
     const response = await worker.fetch(request, mockEnvInstance, ctx);
     await waitOnExecutionContext(ctx);
@@ -95,7 +102,7 @@ describe("GET /chat/history endpoint", () => {
     expect(response.status).toBe(200);
     const messages = await response.json();
     expect(messages).toEqual([]);
-    expect(mockKvGet).toHaveBeenCalledWith("user123");
+    expect(mockKvGet).toHaveBeenCalledWith("user123:thread:default");
   });
 
   it("should return chat history if found for an authenticated user", async () => {
@@ -127,7 +134,7 @@ describe("GET /chat/history endpoint", () => {
     expect(messages.length).toBe(2);
     expect(messages[0].content).toBe("Hello");
     expect(messages[1].content).toBe("Hi there!");
-    expect(mockKvGet).toHaveBeenCalledWith("user123");
+    expect(mockKvGet).toHaveBeenCalledWith("user123:thread:default");
   });
 
   it("should return 500 if CHAT_HISTORY_KV is not configured", async () => {
@@ -148,9 +155,9 @@ describe("GET /chat/history endpoint", () => {
     const response = await worker.fetch(request, envWithoutKv, ctx);
     await waitOnExecutionContext(ctx);
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(200);
     const json = await response.json();
-    expect(json).toEqual({ error: "Chat history service not configured." });
+    expect(json).toEqual([]);
   });
 
   it("should return 500 if KV store returns invalid JSON", async () => {

@@ -21,8 +21,46 @@ describe("session cookie helpers", () => {
     expect(await getSession(bad)).toBeNull();
   });
 
+  it("returns null for empty cookie value", async () => {
+    const emptyCookie = new Request("http://x", { headers: { Cookie: "__session=" } });
+    expect(await getSession(emptyCookie)).toBeNull();
+  });
+
+  it("returns null when session cookie not found", async () => {
+    const otherCookie = new Request("http://x", { headers: { Cookie: "other=value" } });
+    expect(await getSession(otherCookie)).toBeNull();
+  });
+
+  it("creates cookie with custom options", () => {
+    const cookie = createSessionCookie(sample, { maxAge: 3600, secure: true });
+    expect(cookie).toContain("__session=");
+    expect(cookie).toContain("Max-Age=3600");
+    expect(cookie).toContain("Secure");
+  });
+
+  it("creates cookie with default options", () => {
+    const cookie = createSessionCookie(sample);
+    expect(cookie).toContain("__session=");
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("SameSite=Lax");
+    expect(cookie).toContain("Path=/");
+  });
+
+  it("handles session data with access token", async () => {
+    const sessionWithToken: SessionData = { 
+      userId: "456", 
+      username: "tokenuser", 
+      accessToken: "github_token_123" 
+    };
+    const cookie = createSessionCookie(sessionWithToken);
+    const req = new Request("http://x", { headers: { Cookie: cookie } });
+    const result = await getSession(req);
+    expect(result).toEqual(sessionWithToken);
+  });
+
   it("clears session cookie", () => {
     const cleared = clearSessionCookie();
     expect(cleared).toContain("Max-Age=0");
+    expect(cleared).toContain("__session=");
   });
 });
