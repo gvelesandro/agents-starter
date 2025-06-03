@@ -7,16 +7,19 @@ export default defineWorkersConfig({
     },
   },
   test: {
+    include: ["tests/**/*.{test,spec}.{js,ts}"],
+    exclude: ["src/**/*.{test,spec}.{js,ts,jsx,tsx}", "node_modules/**/*"],
     poolOptions: {
       workers: {
         wrangler: { configPath: "./wrangler.jsonc" },
       },
     },
-    coverage: {
-      provider: "v8",
-      reporter: ["text", "json", "html"],
-      include: ["src/**/*"],
-      exclude: ["src/**/*.test.ts", "src/**/*.spec.ts"],
-    },
+    // Coverage disabled for Cloudflare Workers due to node:inspector compatibility issues
+    // coverage: {
+    //   provider: "v8", 
+    //   reporter: ["text", "json", "html"],
+    //   include: ["src/**/*"],
+    //   exclude: ["src/**/*.test.ts", "src/**/*.spec.ts"],
+    // },
   },
 });
