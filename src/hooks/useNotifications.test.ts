@@ -74,13 +74,13 @@ describe("useNotifications", () => {
     });
   });
 
-  it("should auto-dismiss non-error notifications after 5 seconds", () => {
+  it("should not auto-dismiss notifications anymore", () => {
     const { result } = renderHook(() => useNotifications());
 
     act(() => {
       result.current.addNotification({
-        title: "Auto Dismiss",
-        message: "This should be dismissed",
+        title: "Persistent",
+        message: "This should persist",
         type: "success",
       });
     });
@@ -91,7 +91,8 @@ describe("useNotifications", () => {
       vi.advanceTimersByTime(5000);
     });
 
-    expect(result.current.notifications).toHaveLength(0);
+    // Notifications should persist now
+    expect(result.current.notifications).toHaveLength(1);
   });
 
   it("should not auto-dismiss error notifications", () => {
@@ -151,7 +152,7 @@ describe("useNotifications", () => {
       result.current.markAsRead(notificationId);
     });
 
-    expect(result.current.notifications[0].dismissed).toBe(true);
+    expect(result.current.notifications[0].read).toBe(true);
   });
 
   it("should clear all notifications", () => {
@@ -207,7 +208,7 @@ describe("useNotifications", () => {
     expect(result.current.unreadCount).toBe(1);
   });
 
-  it("should clean up old notifications after 30 minutes", () => {
+  it("should clean up old notifications after 7 days", () => {
     const { result } = renderHook(() => useNotifications());
 
     act(() => {
@@ -221,7 +222,7 @@ describe("useNotifications", () => {
     expect(result.current.notifications).toHaveLength(1);
 
     act(() => {
-      vi.advanceTimersByTime(31 * 60 * 1000); // 31 minutes
+      vi.advanceTimersByTime(8 * 24 * 60 * 60 * 1000); // 8 days
     });
 
     expect(result.current.notifications).toHaveLength(0);

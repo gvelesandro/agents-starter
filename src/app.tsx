@@ -29,7 +29,7 @@ import {
 import { Sidebar } from "@/components/sidebar/Sidebar";
 
 // Notification import
-import { NotificationCenter } from "@/components/notifications/NotificationCenter";
+import { NotificationButton } from "@/components/notifications/NotificationButton";
 import { useTaskMessageNotifications } from "@/hooks/useTaskMessageNotifications";
 
 // List of tools that require human confirmation
@@ -174,7 +174,7 @@ const ChatInterface: React.FC<{
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
-  useTaskMessageNotifications(agentMessages);
+  useTaskMessageNotifications(agentMessages, currentThreadId);
 
   useEffect(() => {
     if (agentMessages.length > 0) {
@@ -510,7 +510,14 @@ export default function Chat() {
   // showDebug, textareaHeight, messagesEndRef are now part of ChatInterface or not needed at this level
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoadingUser, setIsLoadingUser] = useState(true);
-  const [currentThreadId, setCurrentThreadId] = useState<string>("default");
+  const [currentThreadId, setCurrentThreadId] = useState<string>(() => {
+    // Initialize from URL parameter if available
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      return urlParams.get("thread") || "default";
+    }
+    return "default";
+  });
   // Sidebar should be open on desktop by default, closed on mobile
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
     // Check if we're on desktop (this will be false during SSR, but that's ok)
@@ -560,6 +567,21 @@ export default function Chat() {
     // Save theme preference to localStorage
     localStorage.setItem("theme", theme);
   }, [theme]);
+
+  // Update URL when thread changes
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (currentThreadId === "default") {
+        url.searchParams.delete("thread");
+      } else {
+        url.searchParams.set("thread", currentThreadId);
+      }
+
+      // Update URL without adding to history
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, [currentThreadId]);
 
   // Handle window resize to manage sidebar state
   useEffect(() => {
@@ -626,7 +648,6 @@ export default function Chat() {
   return (
     <div className="h-[100vh] w-full flex bg-fixed overflow-hidden">
       <HasOpenAIKey />
-      <NotificationCenter />
 
       {/* Sidebar */}
       {currentUser && (
@@ -665,21 +686,27 @@ export default function Chat() {
               {isLoadingUser ? (
                 <p className="text-sm">Loading user...</p>
               ) : currentUser ? (
-                <div className="flex items-center gap-4">
-                  <span className="text-sm">
+                <div className="flex items-center gap-2 sm:gap-4">
+                  <span className="text-sm hidden sm:block">
                     Welcome, {currentUser.username}!
                   </span>
-                  {/* Theme toggle button can be here if it's app-level */}
-                  <Button
-                    variant="ghost"
-                    size="sm" // Adjusted size
-                    shape="square"
-                    className="rounded-full h-8 w-8" // Adjusted size
-                    onClick={toggleTheme}
-                    aria-label="Toggle theme"
-                  >
-                    {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <NotificationButton onNavigateToChat={handleThreadSelect} />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      shape="square"
+                      className="rounded-full h-8 w-8"
+                      onClick={toggleTheme}
+                      aria-label="Toggle theme"
+                    >
+                      {theme === "dark" ? (
+                        <Sun size={18} />
+                      ) : (
+                        <Moon size={18} />
+                      )}
+                    </Button>
+                  </div>
                   <button
                     onClick={async () => {
                       try {

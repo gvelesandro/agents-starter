@@ -10,6 +10,7 @@ interface NotificationContextType {
   ) => string;
   dismissNotification: (id: string) => void;
   markAsRead: (id: string) => void;
+  markAllAsRead: () => void;
   clearAll: () => void;
   unreadCount: number;
   browserNotifications: {

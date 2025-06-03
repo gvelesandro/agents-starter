@@ -2,7 +2,10 @@ import { useEffect } from "react";
 import type { Message } from "@ai-sdk/react";
 import { useNotificationContext } from "../providers/NotificationProvider";
 
-export const useTaskMessageNotifications = (messages: Message[]) => {
+export const useTaskMessageNotifications = (
+  messages: Message[],
+  currentThreadId?: string
+) => {
   const { addNotification } = useNotificationContext();
 
   useEffect(() => {
@@ -21,6 +24,7 @@ export const useTaskMessageNotifications = (messages: Message[]) => {
             title: "Task Scheduled Successfully",
             message: `New task scheduled (${scheduleType}): ${scheduleInput}`,
             type: "success",
+            threadId: currentThreadId,
           });
         }
       } else if (content.includes("has been successfully canceled")) {
@@ -33,6 +37,7 @@ export const useTaskMessageNotifications = (messages: Message[]) => {
             title: "Task Canceled",
             message: `Task ${taskId} has been canceled`,
             type: "warning",
+            threadId: currentThreadId,
           });
         }
       } else if (content.includes("Error scheduling task")) {
@@ -40,12 +45,14 @@ export const useTaskMessageNotifications = (messages: Message[]) => {
           title: "Task Scheduling Failed",
           message: "Failed to schedule the task. Please try again.",
           type: "error",
+          threadId: currentThreadId,
         });
       } else if (content.includes("Error canceling task")) {
         addNotification({
           title: "Task Cancellation Failed",
           message: "Failed to cancel the task. Please try again.",
           type: "error",
+          threadId: currentThreadId,
         });
       }
     } else if (
@@ -60,6 +67,7 @@ export const useTaskMessageNotifications = (messages: Message[]) => {
         title: "Scheduled Task Executed",
         message: `Task completed: "${taskDescription}"`,
         type: "info",
+        threadId: currentThreadId,
       });
     }
   }, [messages, addNotification]);

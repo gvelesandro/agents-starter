@@ -7,7 +7,8 @@ export interface Notification {
   type: "info" | "success" | "warning" | "error";
   timestamp: Date;
   taskId?: string;
-  dismissed?: boolean;
+  threadId?: string;
+  read?: boolean;
 }
 
 interface BrowserNotificationOptions {
@@ -15,13 +16,52 @@ interface BrowserNotificationOptions {
   permission: NotificationPermission;
 }
 
+const STORAGE_KEY = "app_notifications";
+
+const loadNotificationsFromStorage = (): Notification[] => {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        return parsed.map((n: any) => ({
+          ...n,
+          timestamp: new Date(n.timestamp),
+        }));
+      }
+    }
+  } catch (error) {
+    console.error("Failed to load notifications from storage:", error);
+  }
+  return [];
+};
+
+const saveNotificationsToStorage = (notifications: Notification[]) => {
+  if (typeof window === "undefined") return;
+
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(notifications));
+  } catch (error) {
+    console.error("Failed to save notifications to storage:", error);
+  }
+};
+
 export const useNotifications = () => {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>(() =>
+    loadNotificationsFromStorage()
+  );
   const [browserNotifications, setBrowserNotifications] =
     useState<BrowserNotificationOptions>({
       enabled: false,
       permission: "default",
     });
+
+  // Save to localStorage whenever notifications change
+  useEffect(() => {
+    saveNotificationsToStorage(notifications);
+  }, [notifications]);
 
   // Initialize browser notification state
   useEffect(() => {
@@ -73,26 +113,28 @@ export const useNotifications = () => {
         return;
       }
 
-      // Don't send browser notifications if the page is visible
+      // Only send browser notifications when page is hidden
       if (!document.hidden) {
         return;
       }
 
-      const iconMap = {
-        success: "✅",
-        warning: "⚠️",
-        error: "❌",
-        info: "ℹ️",
-      };
+      try {
+        const notification = new window.Notification(title, {
+          body: message,
+          icon: `/favicon.ico`,
+          badge: `/favicon.ico`,
+          tag: `task-notification-${Date.now()}`,
+          requireInteraction: type === "error",
+          silent: false,
+        });
 
-      new Notification(title, {
-        body: message,
-        icon: `/favicon.ico`, // You can customize this
-        badge: `/favicon.ico`,
-        tag: `task-notification-${Date.now()}`,
-        requireInteraction: type === "error",
-        silent: false,
-      });
+        notification.onclick = () => {
+          window.focus();
+          notification.close();
+        };
+      } catch (error) {
+        console.error("Failed to create browser notification:", error);
+      }
     },
     [browserNotifications]
   );
@@ -103,6 +145,7 @@ export const useNotifications = () => {
         ...notification,
         id: crypto.randomUUID(),
         timestamp: new Date(),
+        read: false,
       };
 
       setNotifications((prev) => [newNotification, ...prev]);
@@ -113,12 +156,6 @@ export const useNotifications = () => {
         notification.message,
         notification.type
       );
-
-      if (notification.type !== "error") {
-        setTimeout(() => {
-          dismissNotification(newNotification.id);
-        }, 5000);
-      }
 
       return newNotification.id;
     },
@@ -131,24 +168,29 @@ export const useNotifications = () => {
 
   const markAsRead = useCallback((id: string) => {
     setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, dismissed: true } : n))
+      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
     );
+  }, []);
+
+  const markAllAsRead = useCallback(() => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   }, []);
 
   const clearAll = useCallback(() => {
     setNotifications([]);
   }, []);
 
+  // Clean up old notifications (older than 7 days) periodically
   useEffect(() => {
     const interval = setInterval(() => {
       setNotifications((prev) =>
         prev.filter((n) => {
-          const ageInMinutes =
-            (Date.now() - n.timestamp.getTime()) / (1000 * 60);
-          return ageInMinutes < 30;
+          const ageInDays =
+            (Date.now() - n.timestamp.getTime()) / (1000 * 60 * 60 * 24);
+          return ageInDays < 7;
         })
       );
-    }, 60000);
+    }, 60000 * 60); // Check every hour
 
     return () => clearInterval(interval);
   }, []);
@@ -158,8 +200,9 @@ export const useNotifications = () => {
     addNotification,
     dismissNotification,
     markAsRead,
+    markAllAsRead,
     clearAll,
-    unreadCount: notifications.filter((n) => !n.dismissed).length,
+    unreadCount: notifications.filter((n) => !n.read).length,
     browserNotifications,
     requestNotificationPermission,
     toggleBrowserNotifications,

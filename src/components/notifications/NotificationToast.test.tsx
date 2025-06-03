@@ -34,19 +34,20 @@ describe("NotificationToast", () => {
     const onDismiss = vi.fn();
 
     const testCases = [
-      { type: "success" as const, icon: "✓" },
-      { type: "warning" as const, icon: "⚠" },
-      { type: "error" as const, icon: "✕" },
-      { type: "info" as const, icon: "ℹ" },
+      { type: "success" as const },
+      { type: "warning" as const },
+      { type: "error" as const },
+      { type: "info" as const },
     ];
 
-    testCases.forEach(({ type, icon }) => {
+    testCases.forEach(({ type }) => {
       const notification = { ...mockNotification, type };
-      const { unmount } = render(
+      const { container, unmount } = render(
         <NotificationToast notification={notification} onDismiss={onDismiss} />
       );
 
-      expect(screen.getByText(icon)).toBeInTheDocument();
+      // Check that an SVG icon is present (Phosphor icons render as SVG)
+      expect(container.querySelector("svg")).toBeInTheDocument();
       unmount();
     });
   });
@@ -67,7 +68,7 @@ describe("NotificationToast", () => {
         <NotificationToast notification={notification} onDismiss={onDismiss} />
       );
 
-      const toast = container.querySelector(".p-4");
+      const toast = container.querySelector(".p-3");
       expect(toast).toHaveClass(expectedClass);
       unmount();
     });
