@@ -4,7 +4,9 @@ vi.mock("agents/ai-chat-agent", () => ({
   AIChatAgent: class {
     messages: any[] = [];
     sql() {}
-    fetch() { return Promise.resolve(new Response()); }
+    fetch() {
+      return Promise.resolve(new Response());
+    }
   },
 }));
 

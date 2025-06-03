@@ -48,7 +48,10 @@ describe("tool implementations", () => {
 
   it("scheduleTask throws on invalid type", async () => {
     await expect(
-      tools.scheduleTask.execute({ when: { type: "bad" } as any, description: "d" })
+      tools.scheduleTask.execute({
+        when: { type: "bad" } as any,
+        description: "d",
+      })
     ).rejects.toThrow();
   });
 

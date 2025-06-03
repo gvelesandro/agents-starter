@@ -28,6 +28,10 @@ import {
 // Sidebar import
 import { Sidebar } from "@/components/sidebar/Sidebar";
 
+// Notification import
+import { NotificationCenter } from "@/components/notifications/NotificationCenter";
+import { useTaskMessageNotifications } from "@/hooks/useTaskMessageNotifications";
+
 // List of tools that require human confirmation
 const toolsRequiringConfirmation: (keyof typeof tools)[] = [
   "getWeatherInformation",
@@ -169,6 +173,8 @@ const ChatInterface: React.FC<{
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
+
+  useTaskMessageNotifications(agentMessages);
 
   useEffect(() => {
     if (agentMessages.length > 0) {
@@ -620,6 +626,7 @@ export default function Chat() {
   return (
     <div className="h-[100vh] w-full flex bg-fixed overflow-hidden">
       <HasOpenAIKey />
+      <NotificationCenter />
 
       {/* Sidebar */}
       {currentUser && (
