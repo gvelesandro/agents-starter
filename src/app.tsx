@@ -27,6 +27,7 @@ import {
 
 // Sidebar import
 import { Sidebar } from "@/components/sidebar/Sidebar";
+import NotificationList from './components/notifications/NotificationList';
 
 // List of tools that require human confirmation
 const toolsRequiringConfirmation: (keyof typeof tools)[] = [
@@ -635,6 +636,14 @@ export default function Chat() {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Notifications Area - Placed within the main content area, potentially styled as a sidebar or panel later */}
+        {currentUser && (
+          <div className="notifications-section p-4 border-r border-neutral-300 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 w-full md:w-80 md:h-full md:overflow-y-auto">
+            {/* The above classes suggest a sidebar-like panel on medium+ screens, or full width on small screens. Adjust as needed. */}
+            {/* For simplicity, it's just a div now. Consider making it a collapsible panel or integrating into the existing sidebar. */}
+            <NotificationList />
+          </div>
+        )}
         <div className="h-full w-full mx-auto max-w-4xl flex flex-col shadow-xl overflow-hidden relative border-l border-neutral-300 dark:border-neutral-800">
           {/* App-level Header for Login/Logout and Title */}
           <header className="p-4 border-b border-neutral-300 dark:border-neutral-800 flex justify-between items-center sticky top-0 z-20 bg-background dark:bg-neutral-950">

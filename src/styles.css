@@ -310,3 +310,129 @@
     transform: rotate(360deg) scale(0.9);
   }
 }
+
+/* Notification Styles */
+.notification-list {
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background-color: #f9f9f9;
+  margin-bottom: 20px; /* Example spacing */
+}
+
+.notification-list h3 {
+  margin-top: 0;
+  font-size: 1.2em;
+}
+
+.notification-list button { /* Basic styling for buttons within the list */
+  margin-left: 5px;
+  padding: 5px 10px;
+  border: 1px solid #ddd;
+  background-color: #eee;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.notification-list button:hover {
+  background-color: #e0e0e0;
+}
+
+.notification-item {
+  padding: 10px;
+  margin-bottom: 8px;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  background-color: #fff;
+}
+
+.notification-item p {
+  margin: 0 0 5px 0;
+}
+
+.notification-item small {
+  color: #777;
+  font-size: 0.8em;
+}
+
+.notification-item.unread {
+  background-color: #eef6ff; /* A light blue for unread items */
+  font-weight: bold;
+}
+
+.notification-item.read {
+  background-color: #f5f5f5; /* A light grey for read items */
+  color: #555;
+}
+
+.notification-item.read p, .notification-item.read small {
+    font-weight: normal; /* Ensure text isn't bold if parent was unread */
+    color: #555;
+}
+
+.notification-item button { /* Button within an item, e.g., "Mark as read" */
+  float: right; /* Example positioning */
+  padding: 3px 7px;
+  font-size: 0.9em;
+}
+
+/* Dark theme adjustments for notifications */
+.dark .notification-list {
+  border-color: var(--color-neutral-700);
+  background-color: var(--color-neutral-900);
+  color: var(--text-color-ob-base-300);
+}
+
+.dark .notification-list h3 {
+  color: var(--text-color-ob-base-300);
+}
+
+.dark .notification-list button {
+  border-color: var(--color-neutral-700);
+  background-color: var(--color-neutral-800);
+  color: var(--text-color-ob-base-300);
+}
+
+.dark .notification-list button:hover {
+  background-color: var(--color-neutral-750);
+}
+
+.dark .notification-item {
+  border-color: var(--color-neutral-700);
+  background-color: var(--color-neutral-850);
+}
+
+.dark .notification-item p {
+  color: var(--text-color-ob-base-300);
+}
+
+.dark .notification-item small {
+  color: var(--text-color-ob-base-200);
+}
+
+.dark .notification-item.unread {
+  background-color: oklch(0.35 0.05 250); /* A darker blue for unread items in dark mode */
+  /* font-weight still bold */
+}
+.dark .notification-item.unread p, .dark .notification-item.unread small{
+    color: var(--text-color-ob-base-300); /* Ensure text is readable */
+}
+
+
+.dark .notification-item.read {
+  background-color: var(--color-neutral-800);
+  color: var(--text-color-ob-base-100);
+}
+.dark .notification-item.read p, .dark .notification-item.read small {
+    /* font-weight already normal */
+    color: var(--text-color-ob-base-100);
+}
+
+.dark .notification-item button { /* Button within an item */
+  border-color: var(--color-neutral-600);
+  background-color: var(--color-neutral-750);
+  color: var(--text-color-ob-base-300);
+}
+.dark .notification-item button:hover {
+  background-color: var(--color-neutral-700);
+}

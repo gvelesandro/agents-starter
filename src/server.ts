@@ -23,6 +23,18 @@ import { processToolCalls } from "./utils";
 import { tools, executions } from "./tools";
 // import { env } from "cloudflare:workers";
 
+// Define TaskNotification interface
+interface TaskNotification {
+  id: string;
+  userId: string;
+  message: string;
+  createdAt: string;
+  read: boolean;
+  type: 'task_completion' | 'task_failure'; // Or other relevant types
+  threadId?: string; // Optional: to link back to a relevant chat
+  taskDescription: string; // To store the original task description
+}
+
 const model = openai("gpt-4o-2024-11-20");
 // Cloudflare AI Gateway
 // const openai = createOpenAI({
@@ -254,46 +266,98 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
     return dataStreamResponse;
   }
   async executeTask(description: string, _task: Schedule<string>) {
-    const taskMessage: Message = {
-      id: generateId(),
-      role: "user",
-      content: `Running scheduled task: ${description}`,
-      createdAt: new Date(),
-    };
-
-    const updatedMessages = [...this.messages, taskMessage];
-    await this.saveMessages(updatedMessages);
-
     const session = this.userSession;
     const userId = session?.userId;
     const kv = this.env?.CHAT_HISTORY_KV as KVNamespace | undefined;
 
-    if (userId && kv) {
-      await this.serializeDbOperation(async () => {
-        try {
-          // For scheduled tasks, use the default thread
-          const threadId = "default";
-          const threadKey = `${userId}:thread:${threadId}`;
-          await kv.put(threadKey, JSON.stringify(this.messages));
-
-          // Update thread metadata
-          await this.updateThreadMetadata(userId, threadId, kv);
-        } catch (e) {
-          console.error(
-            `Failed to save chat history after executeTask for user ${userId}:`,
-            e
-          );
-          throw e;
-        }
-      });
-    } else {
-      if (!userId)
-        console.warn("No userId, skipping chat history save (executeTask).");
-      if (!kv)
-        console.warn(
-          "KV namespace not available, skipping chat history save (executeTask)."
-        );
+    if (!userId) {
+      console.error("No userId, cannot save notification or task message.");
+      return;
     }
+    if (!kv) {
+      console.error("KV namespace not available for notifications or task messages.");
+      return;
+    }
+
+    // Construct and save notification
+    const notificationKey = `user:${userId}:notifications`;
+    const newNotification: TaskNotification = {
+      id: generateId(),
+      userId,
+      message: `Scheduled task completed: ${description}`,
+      createdAt: new Date().toISOString(),
+      read: false,
+      type: 'task_completion',
+      taskDescription: description,
+      // threadId: "default", // Assign if relevant, e.g., if tasks are tied to threads
+    };
+
+    await this.serializeDbOperation(async () => {
+      try {
+        const existingNotificationsJson = await kv.get(notificationKey);
+        const existingNotifications: TaskNotification[] = existingNotificationsJson
+          ? JSON.parse(existingNotificationsJson)
+          : [];
+
+        existingNotifications.unshift(newNotification); // Add to the beginning
+
+        const MAX_NOTIFICATIONS = 100;
+        if (existingNotifications.length > MAX_NOTIFICATIONS) {
+          existingNotifications.length = MAX_NOTIFICATIONS; // Trim older notifications
+        }
+
+        await kv.put(notificationKey, JSON.stringify(existingNotifications));
+        console.log(`Notification for task '${description}' saved for user ${userId}`);
+
+      } catch (e) {
+        console.error(`Failed to save notification for user ${userId}:`, e);
+        // Do not re-throw, allow original chat message saving to proceed
+      }
+    });
+
+    // Existing functionality: add a message to the chat history
+    const taskMessage: Message = {
+      id: generateId(),
+      role: "user", // Or 'system' if preferred for automated tasks
+      content: `Ran scheduled task: ${description}`, // Changed message slightly to differentiate
+      createdAt: new Date(),
+    };
+
+    // Add message to current in-memory messages and save
+    // Note: this.messages might be for a specific thread.
+    // If tasks are global, consider how/where to store this message.
+    // For now, it adds to the current agent's message list.
+    const updatedMessages = [...this.messages, taskMessage];
+    // this.messages = updatedMessages; // Update internal state if saveMessages doesn't
+    await this.saveMessages(updatedMessages); // saveMessages should handle KV persistence
+
+    // The original saveMessages call within executeTask was already saving to KV.
+    // If saveMessages correctly updates the current thread associated with this Chat instance,
+    // the below block might be redundant or could be merged with saveMessages logic.
+    // For now, assuming saveMessages handles persistence correctly.
+    // The original code also updated metadata for the "default" thread for tasks.
+    // This can be kept if tasks are associated with a default thread.
+
+    // This part was in the original code, ensure it still makes sense.
+    // It saves the current messages (which now include taskMessage) to the "default" thread.
+    await this.serializeDbOperation(async () => {
+      try {
+        const threadId = "default"; // Tasks associated with a default thread
+        const threadKey = `${userId}:thread:${threadId}`;
+        // Ensure this.messages is the correct set of messages to save for the default thread
+        // If this.messages is for a user-specific thread, this might mix messages.
+        // However, saveMessages should have already saved to the current thread.
+        // This explicit save to "default" might be specific for task messages.
+        await kv.put(threadKey, JSON.stringify(this.messages));
+        await this.updateThreadMetadata(userId, threadId, kv);
+      } catch (e) {
+        console.error(
+          `Failed to save chat history to default thread after executeTask for user ${userId}:`,
+          e
+        );
+        // Not throwing to allow completion
+      }
+    });
   }
 
   private async updateThreadMetadata(
@@ -955,6 +1019,101 @@ export default {
         "OPENAI_API_KEY is not set, don't forget to set it locally in .dev.vars, and use `wrangler secret bulk .dev.vars` to upload it to production"
       );
       // Potentially return an error if this is a route that requires OpenAI
+    }
+
+    // Route: /notifications (GET) - Get all notifications for user
+    if (url.pathname === "/notifications" && request.method === "GET") {
+      const session = await getSession(request);
+      if (!session?.userId) {
+        return new Response(JSON.stringify({ error: "Authentication required" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      const userId = session.userId;
+      const kv = env.CHAT_HISTORY_KV;
+
+      if (!kv) {
+        console.error("KV namespace not available for notifications GET.");
+        return new Response(JSON.stringify({ error: "Notification service not available" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      try {
+        const notificationKey = `user:${userId}:notifications`;
+        const notificationsJson = await kv.get(notificationKey);
+        // Ensure TaskNotification is in scope if not globally defined in this file
+        const notifications: TaskNotification[] = notificationsJson ? JSON.parse(notificationsJson) : [];
+        return new Response(JSON.stringify(notifications), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      } catch (error) {
+        console.error(`Failed to retrieve notifications for user ${userId}:`, error);
+        return new Response(JSON.stringify({ error: "Could not load notifications" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    // Route: /notifications/{notificationId}/read (POST) - Mark a notification as read
+    const readNotificationPattern = /^\/notifications\/([a-zA-Z0-9_-]+)\/read$/;
+    let match;
+
+    if ((match = url.pathname.match(readNotificationPattern)) && request.method === "POST") {
+      const notificationId = match[1];
+      const session = await getSession(request);
+
+      if (!session?.userId) {
+        return new Response(JSON.stringify({ error: "Authentication required" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      const userId = session.userId;
+      const kv = env.CHAT_HISTORY_KV;
+
+      if (!kv) {
+        console.error(`KV namespace not available for marking notification ${notificationId} as read.`);
+        return new Response(JSON.stringify({ error: "Notification service not available" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      try {
+        const notificationKey = `user:${userId}:notifications`;
+        const notificationsJson = await kv.get(notificationKey);
+        if (!notificationsJson) {
+          return new Response(JSON.stringify({ error: "Notifications not found for user" }), { status: 404, headers: { "Content-Type": "application/json" } });
+        }
+
+        let notifications: TaskNotification[] = JSON.parse(notificationsJson);
+        const notificationIndex = notifications.findIndex(n => n.id === notificationId);
+
+        if (notificationIndex === -1) {
+          return new Response(JSON.stringify({ error: "Notification not found" }), { status: 404, headers: { "Content-Type": "application/json" } });
+        }
+
+        if (!notifications[notificationIndex].read) {
+          notifications[notificationIndex].read = true;
+          await kv.put(notificationKey, JSON.stringify(notifications));
+        }
+
+        return new Response(JSON.stringify(notifications[notificationIndex]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      } catch (error) {
+        console.error(`Failed to mark notification ${notificationId} as read for user ${userId}:`, error);
+        return new Response(JSON.stringify({ error: "Could not mark notification as read" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
     }
 
     // Fallback to agent routing for other paths (e.g., the main chat agent interaction endpoint)
