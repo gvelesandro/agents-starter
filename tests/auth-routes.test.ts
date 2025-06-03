@@ -18,27 +18,36 @@ vi.mock("../src/auth/session", async (importOriginal) => {
   };
 });
 
-const { getSession, createSessionCookie, clearSessionCookie } = await import("../src/auth/session");
+const { getSession, createSessionCookie, clearSessionCookie } = await import(
+  "../src/auth/session"
+);
 const mockGetSession = getSession as vi.MockedFunction<typeof getSession>;
-const mockCreateSessionCookie = createSessionCookie as vi.MockedFunction<typeof createSessionCookie>;
-const mockClearSessionCookie = clearSessionCookie as vi.MockedFunction<typeof clearSessionCookie>;
+const mockCreateSessionCookie = createSessionCookie as vi.MockedFunction<
+  typeof createSessionCookie
+>;
+const mockClearSessionCookie = clearSessionCookie as vi.MockedFunction<
+  typeof clearSessionCookie
+>;
 
-const createMockEnv = (): Env => ({
-  AUTH_GITHUB_CLIENT_ID: "test_client_id",
-  AUTH_GITHUB_CLIENT_SECRET: "test_client_secret",
-  AUTH_GITHUB_AUTHORIZED_USERNAMES: "testuser,admin",
-  SESSION_SECRET: "test_session_secret",
-  OPENAI_API_KEY: "test_openai_key",
-  CHAT_HISTORY_KV: {} as KVNamespace,
-  ...testEnv,
-}) as Env;
+const createMockEnv = (): Env =>
+  ({
+    AUTH_GITHUB_CLIENT_ID: "test_client_id",
+    AUTH_GITHUB_CLIENT_SECRET: "test_client_secret",
+    AUTH_GITHUB_AUTHORIZED_USERNAMES: "testuser,admin",
+    SESSION_SECRET: "test_session_secret",
+    OPENAI_API_KEY: "test_openai_key",
+    CHAT_HISTORY_KV: {} as KVNamespace,
+    ...testEnv,
+  }) as Env;
 
 let mockEnvInstance: Env;
 
 beforeEach(() => {
   vi.resetAllMocks();
   mockEnvInstance = createMockEnv();
-  mockCreateSessionCookie.mockReturnValue("__session=mocked_cookie; HttpOnly; Path=/");
+  mockCreateSessionCookie.mockReturnValue(
+    "__session=mocked_cookie; HttpOnly; Path=/"
+  );
   mockClearSessionCookie.mockReturnValue("__session=; Max-Age=0; Path=/");
 });
 
@@ -145,7 +154,9 @@ describe("Authentication Routes", () => {
     });
 
     it("should handle missing state parameter", async () => {
-      const request = new Request("http://localhost/auth/github/callback?code=test123");
+      const request = new Request(
+        "http://localhost/auth/github/callback?code=test123"
+      );
       const ctx = createExecutionContext();
       const response = await worker.fetch(request, mockEnvInstance, ctx);
       await waitOnExecutionContext(ctx);

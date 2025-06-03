@@ -16,7 +16,7 @@ export default defineWorkersConfig({
     },
     // Coverage disabled for Cloudflare Workers due to node:inspector compatibility issues
     // coverage: {
-    //   provider: "v8", 
+    //   provider: "v8",
     //   reporter: ["text", "json", "html"],
     //   include: ["src/**/*"],
     //   exclude: ["src/**/*.test.ts", "src/**/*.spec.ts"],

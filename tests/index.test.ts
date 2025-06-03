@@ -76,7 +76,7 @@ describe("GET /chat/history endpoint", () => {
   it("should return 401 if user is not authenticated", async () => {
     mockGetSession.mockResolvedValue(null);
     const request = new Request("http://localhost/chat/history", {
-      headers: { "Accept": "application/json" }
+      headers: { Accept: "application/json" },
     });
     const ctx = createExecutionContext();
     const response = await worker.fetch(request, mockEnvInstance, ctx);

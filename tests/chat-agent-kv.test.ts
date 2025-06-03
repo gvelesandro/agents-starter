@@ -16,18 +16,18 @@ vi.mock("agents/ai-chat-agent", () => ({
       connect: vi.fn(),
       unstable_getAITools: vi.fn().mockReturnValue({}),
     };
-    
+
     constructor({ env }: { env: any }) {
       this.env = env;
     }
-    
+
     sql() {}
-    async fetch(request: Request) { 
+    async fetch(request: Request) {
       this.context = { request };
-      return Promise.resolve(new Response()); 
+      return Promise.resolve(new Response());
     }
-    async serializeDbOperation(fn: () => any) { 
-      return await fn(); 
+    async serializeDbOperation(fn: () => any) {
+      return await fn();
     }
     async updateThreadMetadata() {}
   },
@@ -239,12 +239,16 @@ describe("Chat Agent KV Storage Integration", () => {
       // Check the last save call should contain both user and assistant messages
       const putCalls = (mockKvStore.put as any).mock.calls;
       expect(putCalls.length).toBeGreaterThan(0);
-      
+
       // Find a save call that contains the user message
       let foundUserMessage = false;
       for (const call of putCalls) {
         const savedData = JSON.parse(call[1]);
-        if (savedData.some((msg: any) => msg.content === "What is the weather today?")) {
+        if (
+          savedData.some(
+            (msg: any) => msg.content === "What is the weather today?"
+          )
+        ) {
           foundUserMessage = true;
           break;
         }
@@ -282,9 +286,9 @@ describe("Chat Agent KV Storage Integration", () => {
 
       // This should throw an error when KV storage fails
       const onFinishCallback = vi.fn();
-      await expect(
-        chatAgent.onChatMessage(onFinishCallback)
-      ).rejects.toThrow("KV storage failed");
+      await expect(chatAgent.onChatMessage(onFinishCallback)).rejects.toThrow(
+        "KV storage failed"
+      );
 
       // Verify that the KV put was attempted
       expect(failingKvStore.put).toHaveBeenCalled();

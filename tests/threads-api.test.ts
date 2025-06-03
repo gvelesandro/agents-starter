@@ -29,15 +29,16 @@ const mockChatHistoryKv = {
   delete: mockKvDelete,
 } as unknown as KVNamespace;
 
-const createMockEnv = (): Env => ({
-  AUTH_GITHUB_CLIENT_ID: "test_client_id",
-  AUTH_GITHUB_CLIENT_SECRET: "test_client_secret",
-  AUTH_GITHUB_AUTHORIZED_USERNAMES: "",
-  SESSION_SECRET: "test_session_secret",
-  OPENAI_API_KEY: "test_openai_key",
-  CHAT_HISTORY_KV: mockChatHistoryKv,
-  ...testEnv,
-}) as Env;
+const createMockEnv = (): Env =>
+  ({
+    AUTH_GITHUB_CLIENT_ID: "test_client_id",
+    AUTH_GITHUB_CLIENT_SECRET: "test_client_secret",
+    AUTH_GITHUB_AUTHORIZED_USERNAMES: "",
+    SESSION_SECRET: "test_session_secret",
+    OPENAI_API_KEY: "test_openai_key",
+    CHAT_HISTORY_KV: mockChatHistoryKv,
+    ...testEnv,
+  }) as Env;
 
 let mockEnvInstance: Env;
 
@@ -51,7 +52,7 @@ describe("Threads API", () => {
     it("should return 401 if user is not authenticated", async () => {
       mockGetSession.mockResolvedValue(null);
       const request = new Request("http://localhost/threads", {
-        headers: { "Accept": "application/json" }
+        headers: { Accept: "application/json" },
       });
       const ctx = createExecutionContext();
       const response = await worker.fetch(request, mockEnvInstance, ctx);
@@ -86,7 +87,7 @@ describe("Threads API", () => {
         username: "testuser",
       };
       mockGetSession.mockResolvedValue(mockUserSession);
-      
+
       const request = new Request("http://localhost/threads");
       const ctx = createExecutionContext();
       const response = await worker.fetch(request, mockEnvInstance, ctx);
@@ -104,7 +105,10 @@ describe("Threads API", () => {
       };
       mockGetSession.mockResolvedValue(mockUserSession);
 
-      const envWithoutKv = { ...mockEnvInstance, CHAT_HISTORY_KV: undefined as any };
+      const envWithoutKv = {
+        ...mockEnvInstance,
+        CHAT_HISTORY_KV: undefined as any,
+      };
       const request = new Request("http://localhost/threads");
       const ctx = createExecutionContext();
       const response = await worker.fetch(request, envWithoutKv, ctx);
@@ -147,7 +151,10 @@ describe("Threads API", () => {
       };
       mockGetSession.mockResolvedValue(mockUserSession);
 
-      const envWithoutKv = { ...mockEnvInstance, CHAT_HISTORY_KV: undefined as any };
+      const envWithoutKv = {
+        ...mockEnvInstance,
+        CHAT_HISTORY_KV: undefined as any,
+      };
       const requestBody = { title: "New Chat Thread" };
       const request = new Request("http://localhost/threads", {
         method: "POST",
@@ -228,7 +235,10 @@ describe("Threads API", () => {
       };
       mockGetSession.mockResolvedValue(mockUserSession);
 
-      const envWithoutKv = { ...mockEnvInstance, CHAT_HISTORY_KV: undefined as any };
+      const envWithoutKv = {
+        ...mockEnvInstance,
+        CHAT_HISTORY_KV: undefined as any,
+      };
       const request = new Request("http://localhost/threads/thread123", {
         method: "DELETE",
       });

@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { createSessionCookie, getSession, clearSessionCookie, type SessionData } from "../src/auth/session";
+import {
+  createSessionCookie,
+  getSession,
+  clearSessionCookie,
+  type SessionData,
+} from "../src/auth/session";
 
 const sample: SessionData = { userId: "123", username: "tester" };
 
@@ -17,17 +22,23 @@ describe("session cookie helpers", () => {
 
   it("returns null for missing or bad cookie", async () => {
     expect(await getSession(new Request("http://x"))).toBeNull();
-    const bad = new Request("http://x", { headers: { Cookie: "__session=bad" } });
+    const bad = new Request("http://x", {
+      headers: { Cookie: "__session=bad" },
+    });
     expect(await getSession(bad)).toBeNull();
   });
 
   it("returns null for empty cookie value", async () => {
-    const emptyCookie = new Request("http://x", { headers: { Cookie: "__session=" } });
+    const emptyCookie = new Request("http://x", {
+      headers: { Cookie: "__session=" },
+    });
     expect(await getSession(emptyCookie)).toBeNull();
   });
 
   it("returns null when session cookie not found", async () => {
-    const otherCookie = new Request("http://x", { headers: { Cookie: "other=value" } });
+    const otherCookie = new Request("http://x", {
+      headers: { Cookie: "other=value" },
+    });
     expect(await getSession(otherCookie)).toBeNull();
   });
 
@@ -47,10 +58,10 @@ describe("session cookie helpers", () => {
   });
 
   it("handles session data with access token", async () => {
-    const sessionWithToken: SessionData = { 
-      userId: "456", 
-      username: "tokenuser", 
-      accessToken: "github_token_123" 
+    const sessionWithToken: SessionData = {
+      userId: "456",
+      username: "tokenuser",
+      accessToken: "github_token_123",
     };
     const cookie = createSessionCookie(sessionWithToken);
     const req = new Request("http://x", { headers: { Cookie: cookie } });
