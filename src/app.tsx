@@ -49,15 +49,11 @@ const ChatInterface: React.FC<{
   currentUser: User | null;
   setCurrentUser: React.Dispatch<React.SetStateAction<User | null>>;
   currentThreadId: string;
-  onThreadChange: (threadId: string) => void;
-  createThreadOnServer: (threadId: string) => Promise<void>;
 }> = ({
   enabled,
   currentUser,
   setCurrentUser,
   currentThreadId,
-  onThreadChange,
-  createThreadOnServer,
 }) => {
   // State to control when we can safely use the agent chat hook
   const [canUseAgentChat, setCanUseAgentChat] = useState(false);
@@ -888,8 +884,6 @@ export default function Chat() {
               currentUser={currentUser}
               setCurrentUser={setCurrentUser}
               currentThreadId={currentThreadId}
-              onThreadChange={handleThreadSelect}
-              createThreadOnServer={createThreadOnServer}
             />
           )}
 

@@ -313,8 +313,20 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
     if (userId && kv) {
       await this.serializeDbOperation(async () => {
         try {
-          // For scheduled tasks, use the default thread
-          const threadId = "default";
+          // For scheduled tasks, try to use the user's last active thread, fallback to default
+          let threadId = "default";
+          try {
+            const lastActiveThread = await kv.get(`${userId}:last_active_thread`);
+            if (lastActiveThread) {
+              threadId = lastActiveThread;
+              console.log(`[SCHEDULED_TASK] Using last active thread: ${threadId} for user: ${userId}`);
+            } else {
+              console.log(`[SCHEDULED_TASK] No last active thread found, using default for user: ${userId}`);
+            }
+          } catch (e) {
+            console.warn(`[SCHEDULED_TASK] Failed to get last active thread for user ${userId}, using default:`, e);
+          }
+
           const threadKey = `${userId}:thread:${threadId}`;
           await kv.put(threadKey, JSON.stringify(this.messages));
 
@@ -388,6 +400,11 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
       }
 
       await kv.put(threadsKey, JSON.stringify(existingThreads));
+
+      // Store user's last active thread for scheduled tasks
+      if (validatedThreadId !== "default") {
+        await kv.put(`${userId}:last_active_thread`, validatedThreadId);
+      }
 
       // Notify frontend about thread update
       console.log(
