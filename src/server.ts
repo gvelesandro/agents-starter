@@ -257,7 +257,7 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
     const taskMessage: Message = {
       id: generateId(),
       role: "user",
-      content: `Running scheduled task: ${description}`,
+      content: `scheduled message: Running scheduled task: ${description}`,
       createdAt: new Date(),
     };
 
