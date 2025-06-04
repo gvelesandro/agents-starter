@@ -122,35 +122,86 @@ const ChatInterface: React.FC<{
     });
   }, [agent, currentThreadId, currentUser, canUseAgentChat, isLoadingHistory, historyMessages]);
 
-  // Monitor default thread for scheduled task notifications when on other threads
+  // Monitor all threads for scheduled task notifications
   useEffect(() => {
-    if (!currentUser?.userId || currentThreadId === "default") return;
+    if (!currentUser?.userId) return;
+
+    // Keep track of thread message counts and notified task completions
+    const threadMessageCounts = new Map<string, number>();
+    const notifiedTaskCompletions = new Set<string>();
 
     const interval = setInterval(async () => {
       try {
-        const response = await fetch("/chat/history");
-        if (response.ok) {
-          const defaultMessages = await response.json() as Message[];
-          const recentMessage = defaultMessages[defaultMessages.length - 1];
-          if (recentMessage?.role === "user" && 
-              recentMessage.content.startsWith("Running scheduled task:")) {
-            const taskDescription = recentMessage.content.replace("Running scheduled task: ", "");
-            if (typeof (window as any).showNotification === "function") {
-              (window as any).showNotification({
-                title: "Scheduled Task Completed",
-                message: `Task completed: "${taskDescription}"`,
-                type: "info"
-              });
+        // Get all threads for the user
+        const threadsResponse = await fetch("/threads");
+        if (!threadsResponse.ok) return;
+        
+        const threads = await threadsResponse.json() as Array<{id: string, title: string}>;
+        
+        // Check each thread for new scheduled task completions
+        for (const thread of threads) {
+          // Skip the current thread - user can see those messages directly
+          if (thread.id === currentThreadId) continue;
+          
+          try {
+            const threadUrl = thread.id === "default" ? "/chat/history" : `/threads/${thread.id}`;
+            const response = await fetch(threadUrl);
+            if (response.ok) {
+              const messages = await response.json() as Message[];
+              const previousCount = threadMessageCounts.get(thread.id) || 0;
+              const currentCount = messages.length;
+              
+              // Update the count
+              threadMessageCounts.set(thread.id, currentCount);
+              
+              // If there are new messages, check if any are scheduled task completions
+              if (currentCount > previousCount && messages.length >= 2) {
+                // Look for the pattern: user message "Running scheduled task:" followed by assistant response
+                for (let i = Math.max(0, previousCount); i < messages.length - 1; i++) {
+                  const userMessage = messages[i];
+                  const assistantMessage = messages[i + 1];
+                  
+                  if (userMessage?.role === "user" && 
+                      userMessage.content.startsWith("Running scheduled task:") &&
+                      assistantMessage?.role === "assistant" &&
+                      assistantMessage.id &&
+                      !notifiedTaskCompletions.has(assistantMessage.id)) {
+                    
+                    // Mark this completion as notified
+                    notifiedTaskCompletions.add(assistantMessage.id);
+                    
+                    const taskDescription = userMessage.content.replace("Running scheduled task: ", "");
+                    
+                    console.log(`[NOTIFICATION] Scheduled task completed in thread ${thread.id}: ${taskDescription}`);
+                    
+                    if (typeof (window as any).showNotification === "function") {
+                      (window as any).showNotification({
+                        title: "Scheduled Task Completed",
+                        message: `Task completed in "${thread.title}": "${taskDescription}"`,
+                        type: "info",
+                        onClick: () => {
+                          // Navigate to the thread with the scheduled task
+                          if (typeof (window as any).navigateToThread === "function") {
+                            (window as any).navigateToThread(thread.id);
+                          }
+                        }
+                      });
+                    }
+                  }
+                }
+              }
             }
+          } catch (threadError) {
+            console.error(`Failed to check thread ${thread.id} for notifications:`, threadError);
           }
         }
       } catch (error) {
         console.error("Failed to check for scheduled task notifications:", error);
       }
-    }, 10000);
+    }, 5000); // Check more frequently (every 5 seconds) for better responsiveness
 
     return () => clearInterval(interval);
-  }, [currentUser, currentThreadId]);
+  }, [currentUser?.userId, currentThreadId]);
 
   useEffect(() => {
     if (enabled && currentUser?.userId && currentThreadId) {
@@ -727,6 +778,14 @@ export default function Chat() {
     setCurrentThreadId(threadId);
     setIsSidebarOpen(false); // Close sidebar on mobile after selection
   };
+
+  // Expose thread navigation globally for notifications
+  useEffect(() => {
+    (window as any).navigateToThread = handleThreadSelect;
+    return () => {
+      delete (window as any).navigateToThread;
+    };
+  }, [handleThreadSelect]);
 
   const handleNewThread = async () => {
     // Generate a new thread ID and create it immediately on the server

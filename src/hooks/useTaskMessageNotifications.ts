@@ -67,7 +67,7 @@ export const useTaskMessageNotifications = (
         title: "Scheduled Task Executed",
         message: `Task completed: "${taskDescription}"`,
         type: "info",
-        threadId: "default", // Always use default for scheduled tasks regardless of current thread
+        threadId: currentThreadId, // Use current thread instead of hardcoded default
       });
     }
   }, [messages, addNotification]);
