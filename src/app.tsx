@@ -61,18 +61,56 @@ const ChatInterface: React.FC<{
 }) => {
   // State to control when we can safely use the agent chat hook
   const [canUseAgentChat, setCanUseAgentChat] = useState(false);
+  
+  const [historyMessages, setHistoryMessages] = useState<Message[] | undefined>(
+    undefined
+  );
+  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(true);
 
   const agent = useAgent({
     agent: "chat",
     name: `${currentUser?.userId}-${currentThreadId}`,
   });
 
-  // Enable agent chat only when we have a valid user and thread
+  // Enable agent chat only when we have a valid user, thread, and history is loaded
   useEffect(() => {
-    setCanUseAgentChat(
-      enabled && !!currentUser?.userId && !!currentThreadId && !!agent.agent
-    );
-  }, [enabled, currentUser?.userId, currentThreadId, agent.agent]);
+    const expectedName = `${currentUser?.userId}-${currentThreadId}`;
+    const shouldEnable = enabled && 
+      !!currentUser?.userId && 
+      !!currentThreadId && 
+      !!agent.agent && 
+      !isLoadingHistory && 
+      historyMessages !== undefined;
+    
+    // Allow some flexibility with agent name during task execution
+    const nameMatches = agent.name === expectedName || 
+                       (agent.name && agent.name === `${currentUser?.userId}-default`) ||
+                       (agent.name && agent.name === `${currentUser?.userId}-scheduled-task`);
+    
+    // When thread changes, immediately disable agent chat to force a clean state
+    if (currentThreadId !== (window as any).lastThreadId) {
+      console.log(`[THREAD_SWITCH] Thread changed from "${(window as any).lastThreadId}" to "${currentThreadId}"`);
+      (window as any).lastThreadId = currentThreadId;
+      setCanUseAgentChat(false);
+      return;
+    }
+    
+    if (shouldEnable) {
+      if (nameMatches) {
+        // Add a small delay to ensure agent connection is fully established
+        const timer = setTimeout(() => {
+          setCanUseAgentChat(true);
+        }, 100);
+        return () => clearTimeout(timer);
+      } else {
+        // Name doesn't match but other conditions are met - keep enabled for task execution
+        console.log(`[AGENT] Name mismatch during task execution: expected "${expectedName}", got "${agent.name}"`);
+        setCanUseAgentChat(true);
+      }
+    } else {
+      setCanUseAgentChat(false);
+    }
+  }, [enabled, currentUser?.userId, currentThreadId, agent.agent, agent.name, isLoadingHistory, historyMessages]);
 
   // Debug agent info
   useEffect(() => {
@@ -82,16 +120,45 @@ const ChatInterface: React.FC<{
       currentThreadId,
       currentUser: currentUser?.userId,
       canUseAgentChat,
+      isLoadingHistory,
+      historyMessagesLength: historyMessages?.length,
+      historyMessagesUndefined: historyMessages === undefined,
     });
-  }, [agent, currentThreadId, currentUser, canUseAgentChat]);
+  }, [agent, currentThreadId, currentUser, canUseAgentChat, isLoadingHistory, historyMessages]);
 
-  const [historyMessages, setHistoryMessages] = useState<Message[] | undefined>(
-    undefined
-  );
-  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(true);
+  // Monitor default thread for scheduled task notifications when on other threads
+  useEffect(() => {
+    if (!currentUser?.userId || currentThreadId === "default") return;
+
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch("/chat/history");
+        if (response.ok) {
+          const defaultMessages = await response.json() as Message[];
+          const recentMessage = defaultMessages[defaultMessages.length - 1];
+          if (recentMessage?.role === "user" && 
+              recentMessage.content.startsWith("Running scheduled task:")) {
+            const taskDescription = recentMessage.content.replace("Running scheduled task: ", "");
+            if (typeof (window as any).showNotification === "function") {
+              (window as any).showNotification({
+                title: "Scheduled Task Completed",
+                message: `Task completed: "${taskDescription}"`,
+                type: "info"
+              });
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Failed to check for scheduled task notifications:", error);
+      }
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [currentUser, currentThreadId]);
 
   useEffect(() => {
     if (enabled && currentUser?.userId && currentThreadId) {
+      console.log(`[HISTORY_LOADING] Loading history for thread: ${currentThreadId}`);
       setIsLoadingHistory(true);
       const url =
         currentThreadId === "default"
@@ -109,7 +176,9 @@ const ChatInterface: React.FC<{
           return [];
         })
         .then((data: unknown) => {
-          setHistoryMessages(Array.isArray(data) ? (data as Message[]) : []);
+          const messages = Array.isArray(data) ? (data as Message[]) : [];
+          console.log(`[HISTORY_LOADED] Loaded ${messages.length} messages for thread: ${currentThreadId}`);
+          setHistoryMessages(messages);
         })
         .catch((err) => {
           console.error("Error fetching/parsing chat history:", err);
@@ -169,6 +238,8 @@ const ChatInterface: React.FC<{
         stop: () => {},
       };
 
+  // Component remounting via key prop handles thread switching
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -207,11 +278,69 @@ const ChatInterface: React.FC<{
 
   const [textareaHeight, setTextareaHeight] = useState("auto");
 
-  if (enabled && isLoadingHistory) {
+  // Show loading state in the chat area while keeping sidebar functional
+  const isLoadingAgent = enabled && (isLoadingHistory || !canUseAgentChat);
+  
+  if (isLoadingAgent) {
     return (
-      <div className="flex-1 flex items-center justify-center p-4">
-        <p className="text-muted-foreground">Loading chat history...</p>
-      </div>
+      <>
+        {/* ChatInterface's own controls (Debug, Clear History) */}
+        <div className="px-4 py-3 border-b border-neutral-300 dark:border-neutral-800 flex items-center justify-between sticky top-0 bg-background dark:bg-neutral-900 z-10">
+          <div className="flex items-center gap-2">
+            <Bug size={16} />
+            <Toggle
+              toggled={showDebug}
+              aria-label="Toggle debug mode"
+              onClick={() => setShowDebug((prev: boolean) => !prev)}
+            />
+            <span className="text-xs text-muted-foreground">Debug</span>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              clearHistory();
+            }}
+            aria-label="Clear chat history"
+            disabled={true}
+          >
+            <Trash size={16} />
+            <span className="ml-1 text-xs">Clear</span>
+          </Button>
+        </div>
+
+        {/* Loading state in messages area */}
+        <div className="flex-1 flex items-center justify-center p-4">
+          <p className="text-muted-foreground">
+            {isLoadingHistory ? "Loading chat history..." : "Connecting to chat agent..."}
+          </p>
+        </div>
+
+        {/* Disabled input form */}
+        <form className="p-3 bg-neutral-50 absolute bottom-0 left-0 right-0 z-10 border-t border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 relative">
+              <Textarea
+                disabled={true}
+                placeholder="Connecting to chat agent..."
+                className="flex w-full border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-base ring-offset-background placeholder:text-neutral-500 dark:placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300 dark:focus-visible:ring-neutral-700 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-neutral-900 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-2xl pb-10 dark:bg-neutral-900"
+                value=""
+                rows={2}
+              />
+              <div className="absolute bottom-0 right-0 p-2 w-fit flex flex-row justify-end">
+                <button
+                  type="button"
+                  disabled={true}
+                  className="inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full p-1.5 h-fit border border-neutral-200 dark:border-neutral-800"
+                  aria-label="Send message"
+                >
+                  <PaperPlaneTilt size={16} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </form>
+      </>
     );
   }
 
@@ -389,11 +518,6 @@ const ChatInterface: React.FC<{
             agentMessages.length === 0 &&
             (!historyMessages || historyMessages.length === 0);
 
-          // If this is a new thread (not default), create it on the server first
-          if (isFirstMessage && currentThreadId !== "default") {
-            createThreadOnServer(currentThreadId);
-          }
-
           handleAgentSubmit(e, {
             data: { annotations: { hello: "world" } },
           });
@@ -443,11 +567,6 @@ const ChatInterface: React.FC<{
                   const isFirstMessage =
                     agentMessages.length === 0 &&
                     (!historyMessages || historyMessages.length === 0);
-
-                  // If this is a new thread (not default), create it on the server first
-                  if (isFirstMessage && currentThreadId !== "default") {
-                    createThreadOnServer(currentThreadId);
-                  }
 
                   handleAgentSubmit(e as unknown as React.FormEvent);
                   setTextareaHeight("auto");
@@ -514,7 +633,8 @@ export default function Chat() {
     // Initialize from URL parameter if available
     if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
-      return urlParams.get("thread") || "default";
+      const threadParam = urlParams.get("thread")?.trim();
+      return threadParam || "default";
     }
     return "default";
   });
@@ -607,19 +727,34 @@ export default function Chat() {
   };
 
   const handleThreadSelect = (threadId: string) => {
+    console.log(`[THREAD_SELECT] Switching from "${currentThreadId}" to "${threadId}"`);
     setCurrentThreadId(threadId);
     setIsSidebarOpen(false); // Close sidebar on mobile after selection
   };
 
-  const handleNewThread = () => {
-    // Just generate a new thread ID and switch to it
-    // Don't create it on the server until the user sends a message
-    const newThreadId = `thread_${Date.now()}`;
+  const handleNewThread = async () => {
+    // Generate a new thread ID and create it immediately on the server
+    const newThreadId = `thread_${crypto.randomUUID()}`;
+    
+    // Create the thread on the server first to prevent refresh issues
+    await createThreadOnServer(newThreadId);
+    
+    // Then switch to it in the UI
     setCurrentThreadId(newThreadId);
     setIsSidebarOpen(false); // Close sidebar on mobile after creation
   };
 
   const createThreadOnServer = async (threadId: string) => {
+    // Prevent duplicate creation calls for the same thread
+    if ((createThreadOnServer as any).inProgress?.has(threadId)) {
+      return;
+    }
+
+    if (!(createThreadOnServer as any).inProgress) {
+      (createThreadOnServer as any).inProgress = new Set();
+    }
+    (createThreadOnServer as any).inProgress.add(threadId);
+
     try {
       const response = await fetch("/threads", {
         method: "POST",
@@ -639,6 +774,8 @@ export default function Chat() {
       }
     } catch (error) {
       console.error("Error creating thread on server:", error);
+    } finally {
+      (createThreadOnServer as any).inProgress?.delete(threadId);
     }
   };
 
@@ -746,7 +883,7 @@ export default function Chat() {
 
           {!isLoadingUser && currentUser && (
             <ChatInterface
-              key={`${currentUser.userId}-${currentThreadId}`}
+              key={`chat-${currentUser.userId}-${currentThreadId}`}
               enabled={true}
               currentUser={currentUser}
               setCurrentUser={setCurrentUser}

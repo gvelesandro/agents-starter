@@ -41,8 +41,8 @@ export class Chat extends AIChatAgent<Env> {
    * Override the sql method to add retry logic for database busy errors
    */
   sql(strings: TemplateStringsArray, ...values: any[]): any[] {
-    const maxRetries = 10; // Increased from 5
-    const baseDelay = 100; // Increased from 50ms
+    const maxRetries = 20; // Increased significantly for deadlock situations
+    const baseDelay = 300; // Increased for more aggressive backoff
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
@@ -55,10 +55,10 @@ export class Chat extends AIChatAgent<Env> {
           error?.cause?.message?.includes("database is locked");
 
         if (isBusyError && attempt < maxRetries - 1) {
-          // Exponential backoff with jitter, max 2 seconds
+          // More aggressive exponential backoff with longer max delay for deadlock recovery
           const delay = Math.min(
-            baseDelay * Math.pow(2, attempt) + Math.random() * 100,
-            2000
+            baseDelay * Math.pow(1.5, attempt) + Math.random() * 500,
+            5000 // Increased max delay to 5 seconds
           );
           console.warn(
             `Database busy, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries}). Error: ${error?.message || error}`
@@ -72,11 +72,18 @@ export class Chat extends AIChatAgent<Env> {
           continue;
         }
 
+        // Special handling for schedule deletion failures - these can be safely ignored
+        const queryText = strings[0]?.toLowerCase() || "";
+        if (isBusyError && queryText.includes("delete") && queryText.includes("cf_agents_schedules")) {
+          console.error(`[DB_RECOVERY] Schedule deletion failed after ${maxRetries} attempts, ignoring to prevent crash. Task will retry later.`);
+          return []; // Return empty result to prevent crash
+        }
+
         // Log the full error for debugging
-        console.error(`Database error after ${attempt + 1} attempts:`, {
+        console.error(`[DB_FATAL] Database error after ${maxRetries} attempts:`, {
           message: error?.message,
           cause: error?.cause,
-          stack: error?.stack,
+          query: strings[0]?.substring(0, 100),
         });
         throw error;
       }
@@ -165,8 +172,12 @@ export class Chat extends AIChatAgent<Env> {
     if (this.name) {
       const parts = this.name.split("-");
       if (parts.length >= 2) {
-        threadId = parts.slice(1).join("-"); // In case threadId itself contains dashes
+        const extractedThreadId = parts.slice(1).join("-").trim(); // In case threadId itself contains dashes
+        threadId = extractedThreadId || "default";
       }
+      console.log(`[CHAT] Agent connection name: "${this.name}" -> Thread ID: "${threadId}"`);
+    } else {
+      // In tests or when name is not set, use default thread (no warning needed)
     }
 
     // Save user message immediately when received
@@ -174,10 +185,12 @@ export class Chat extends AIChatAgent<Env> {
       await this.serializeDbOperation(async () => {
         try {
           const threadKey = `${userId}:thread:${threadId}`;
+          console.log(`[MESSAGE_SAVE] Agent: ${this.name} | Thread: ${threadId} | Saving ${this.messages.length} messages to: ${threadKey}`);
           await kv.put(threadKey, JSON.stringify(this.messages));
 
           // Update thread metadata
           await this.updateThreadMetadata(userId, threadId, kv);
+          console.log(`[CHAT] Successfully saved messages to thread: ${threadKey}`);
         } catch (e) {
           console.error(`Failed to save user message for user ${userId}:`, e);
           throw e;
@@ -226,10 +239,12 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
               await this.serializeDbOperation(async () => {
                 try {
                   const threadKey = `${userId}:thread:${threadId}`;
+                  console.log(`[CHAT] Saving complete conversation (${this.messages.length} messages) to thread: ${threadKey}`);
                   await kv.put(threadKey, JSON.stringify(this.messages));
 
                   // Update thread metadata
                   await this.updateThreadMetadata(userId, threadId, kv);
+                  console.log(`[CHAT] Successfully saved complete conversation to thread: ${threadKey}`);
                 } catch (e) {
                   console.error(
                     `Failed to save chat history for user ${userId}:`,
@@ -254,6 +269,21 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
     return dataStreamResponse;
   }
   async executeTask(description: string, _task: Schedule<string>) {
+    // Store original name to restore later
+    let originalName: string | undefined;
+    try {
+      originalName = this.name;
+    } catch (error) {
+      // Name not set, that's fine
+    }
+
+    // Set a temporary name for scheduled tasks if not already set
+    if (!originalName) {
+      const session = this.userSession;
+      const userId = session?.userId || "unknown";
+      this.setName(`${userId}-scheduled-task`);
+    }
+
     const taskMessage: Message = {
       id: generateId(),
       role: "user",
@@ -264,8 +294,20 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
     const updatedMessages = [...this.messages, taskMessage];
     await this.saveMessages(updatedMessages);
 
+    // For scheduled tasks, extract userId from agent name since userSession may not be available
+    let userId: string | undefined;
     const session = this.userSession;
-    const userId = session?.userId;
+    
+    if (session?.userId) {
+      userId = session.userId;
+    } else if (this.name) {
+      // Extract userId from agent name format "userId-threadId"
+      const parts = this.name.split("-");
+      if (parts.length >= 2) {
+        userId = parts[0];
+      }
+    }
+
     const kv = this.env?.CHAT_HISTORY_KV as KVNamespace | undefined;
 
     if (userId && kv) {
@@ -288,11 +330,20 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
       });
     } else {
       if (!userId)
-        console.warn("No userId, skipping chat history save (executeTask).");
+        console.warn(`[TASK] No userId available for scheduled task. Agent name: ${this.name}, Session: ${!!session}`);
       if (!kv)
         console.warn(
           "KV namespace not available, skipping chat history save (executeTask)."
         );
+    }
+
+    // Restore original name if it was set
+    if (originalName) {
+      try {
+        this.setName(originalName);
+      } catch (error) {
+        console.warn("Failed to restore original agent name after task execution");
+      }
     }
   }
 
@@ -302,6 +353,12 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
     kv: KVNamespace
   ) {
     try {
+      // Validate threadId before creating metadata
+      const validatedThreadId = threadId?.trim() || "default";
+      if (validatedThreadId !== threadId) {
+        console.warn(`[THREAD_METADATA] Invalid threadId "${threadId}" corrected to "${validatedThreadId}"`);
+      }
+
       const threadsKey = `${userId}:threads`;
       const existingThreadsJson = await kv.get(threadsKey);
       const existingThreads = existingThreadsJson
@@ -309,10 +366,10 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
         : [];
 
       // Find existing thread or create new one
-      let thread = existingThreads.find((t: any) => t.id === threadId);
+      let thread = existingThreads.find((t: any) => t.id === validatedThreadId);
       if (!thread) {
         thread = {
-          id: threadId,
+          id: validatedThreadId,
           title: this.generateThreadTitle(),
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -334,7 +391,7 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
 
       // Notify frontend about thread update
       console.log(
-        `[THREAD_UPDATED] ${userId}:${threadId} - Thread metadata updated`
+        `[THREAD_UPDATED] ${userId}:${validatedThreadId} - Thread metadata updated`
       );
     } catch (e) {
       console.error(`Failed to update thread metadata for user ${userId}:`, e);
@@ -720,13 +777,24 @@ export default {
       } else if (request.method === "POST") {
         try {
           const body = (await request.json()) as { threadId?: string };
-          const threadId = body.threadId || `thread_${Date.now()}`;
+          const threadId = body.threadId?.trim() || `thread_${crypto.randomUUID()}`;
 
           const threadsKey = `${userId}:threads`;
           const existingThreadsJson = await kv.get(threadsKey);
           const existingThreads = existingThreadsJson
             ? JSON.parse(existingThreadsJson)
             : [];
+
+          // Check if thread already exists to prevent duplicates
+          const existingThread = existingThreads.find(
+            (t: any) => t.id === threadId
+          );
+          if (existingThread) {
+            return new Response(JSON.stringify({ thread: existingThread }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
 
           // Create new thread
           const newThread = {
