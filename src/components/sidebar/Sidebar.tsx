@@ -155,6 +155,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         fixed top-0 left-0 h-full w-80 bg-white dark:bg-neutral-900 
         border-r border-neutral-200 dark:border-neutral-700 
         transform transition-transform duration-300 ease-in-out z-50
+        flex flex-col
         ${isOpen ? "translate-x-0" : "-translate-x-full"}
         md:relative md:translate-x-0 md:z-auto
       `}

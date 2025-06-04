@@ -3,6 +3,7 @@ import { Bell } from "@phosphor-icons/react";
 import { useNotificationContext } from "../../providers/NotificationProvider";
 import { NotificationPanel } from "./NotificationPanel";
 import { Button } from "../button/Button";
+import useClickOutside from "../../hooks/useClickOutside";
 
 interface NotificationButtonProps {
   onNavigateToChat?: (threadId: string) => void;
@@ -13,9 +14,10 @@ export const NotificationButton: React.FC<NotificationButtonProps> = ({
 }) => {
   const { unreadCount } = useNotificationContext();
   const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useClickOutside(() => setIsOpen(false));
 
   return (
-    <div className="relative z-50">
+    <div ref={containerRef} className="relative z-50">
       <Button
         variant="ghost"
         size="sm"
@@ -33,20 +35,13 @@ export const NotificationButton: React.FC<NotificationButtonProps> = ({
       </Button>
 
       {isOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-30 bg-black/5 backdrop-blur-[2px]"
-            onClick={() => setIsOpen(false)}
-            aria-hidden="true"
-          />
-          <NotificationPanel
-            onClose={() => setIsOpen(false)}
-            onNavigateToChat={(threadId) => {
-              onNavigateToChat?.(threadId);
-              setIsOpen(false);
-            }}
-          />
-        </>
+        <NotificationPanel
+          onClose={() => setIsOpen(false)}
+          onNavigateToChat={(threadId) => {
+            onNavigateToChat?.(threadId);
+            setIsOpen(false);
+          }}
+        />
       )}
     </div>
   );
