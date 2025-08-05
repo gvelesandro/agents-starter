@@ -21,6 +21,8 @@ import {
 import { openai } from "@ai-sdk/openai";
 import { processToolCalls } from "./utils";
 import { tools, executions } from "./tools";
+// MCP Agent API functions
+import * as agentAPI from "./api/agents";
 // import { env } from "cloudflare:workers";
 
 const model = openai("gpt-4o-2024-11-20");
@@ -74,17 +76,26 @@ export class Chat extends AIChatAgent<Env> {
 
         // Special handling for schedule deletion failures - these can be safely ignored
         const queryText = strings[0]?.toLowerCase() || "";
-        if (isBusyError && queryText.includes("delete") && queryText.includes("cf_agents_schedules")) {
-          console.error(`[DB_RECOVERY] Schedule deletion failed after ${maxRetries} attempts, ignoring to prevent crash. Task will retry later.`);
+        if (
+          isBusyError &&
+          queryText.includes("delete") &&
+          queryText.includes("cf_agents_schedules")
+        ) {
+          console.error(
+            `[DB_RECOVERY] Schedule deletion failed after ${maxRetries} attempts, ignoring to prevent crash. Task will retry later.`
+          );
           return []; // Return empty result to prevent crash
         }
 
         // Log the full error for debugging
-        console.error(`[DB_FATAL] Database error after ${maxRetries} attempts:`, {
-          message: error?.message,
-          cause: error?.cause,
-          query: strings[0]?.substring(0, 100),
-        });
+        console.error(
+          `[DB_FATAL] Database error after ${maxRetries} attempts:`,
+          {
+            message: error?.message,
+            cause: error?.cause,
+            query: strings[0]?.substring(0, 100),
+          }
+        );
         throw error;
       }
     }
@@ -175,7 +186,9 @@ export class Chat extends AIChatAgent<Env> {
         const extractedThreadId = parts.slice(1).join("-").trim(); // In case threadId itself contains dashes
         threadId = extractedThreadId || "default";
       }
-      console.log(`[CHAT] Agent connection name: "${this.name}" -> Thread ID: "${threadId}"`);
+      console.log(
+        `[CHAT] Agent connection name: "${this.name}" -> Thread ID: "${threadId}"`
+      );
     } else {
       // In tests or when name is not set, use default thread (no warning needed)
     }
@@ -185,12 +198,16 @@ export class Chat extends AIChatAgent<Env> {
       await this.serializeDbOperation(async () => {
         try {
           const threadKey = `${userId}:thread:${threadId}`;
-          console.log(`[MESSAGE_SAVE] Agent: ${this.name} | Thread: ${threadId} | Saving ${this.messages.length} messages to: ${threadKey}`);
+          console.log(
+            `[MESSAGE_SAVE] Agent: ${this.name} | Thread: ${threadId} | Saving ${this.messages.length} messages to: ${threadKey}`
+          );
           await kv.put(threadKey, JSON.stringify(this.messages));
 
           // Update thread metadata
           await this.updateThreadMetadata(userId, threadId, kv);
-          console.log(`[CHAT] Successfully saved messages to thread: ${threadKey}`);
+          console.log(
+            `[CHAT] Successfully saved messages to thread: ${threadKey}`
+          );
         } catch (e) {
           console.error(`Failed to save user message for user ${userId}:`, e);
           throw e;
@@ -239,12 +256,16 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
               await this.serializeDbOperation(async () => {
                 try {
                   const threadKey = `${userId}:thread:${threadId}`;
-                  console.log(`[CHAT] Saving complete conversation (${this.messages.length} messages) to thread: ${threadKey}`);
+                  console.log(
+                    `[CHAT] Saving complete conversation (${this.messages.length} messages) to thread: ${threadKey}`
+                  );
                   await kv.put(threadKey, JSON.stringify(this.messages));
 
                   // Update thread metadata
                   await this.updateThreadMetadata(userId, threadId, kv);
-                  console.log(`[CHAT] Successfully saved complete conversation to thread: ${threadKey}`);
+                  console.log(
+                    `[CHAT] Successfully saved complete conversation to thread: ${threadKey}`
+                  );
                 } catch (e) {
                   console.error(
                     `Failed to save chat history for user ${userId}:`,
@@ -297,7 +318,7 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
     // For scheduled tasks, extract userId from agent name since userSession may not be available
     let userId: string | undefined;
     const session = this.userSession;
-    
+
     if (session?.userId) {
       userId = session.userId;
     } else if (this.name) {
@@ -316,15 +337,24 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
           // For scheduled tasks, try to use the user's last active thread, fallback to default
           let threadId = "default";
           try {
-            const lastActiveThread = await kv.get(`${userId}:last_active_thread`);
+            const lastActiveThread = await kv.get(
+              `${userId}:last_active_thread`
+            );
             if (lastActiveThread) {
               threadId = lastActiveThread;
-              console.log(`[SCHEDULED_TASK] Using last active thread: ${threadId} for user: ${userId}`);
+              console.log(
+                `[SCHEDULED_TASK] Using last active thread: ${threadId} for user: ${userId}`
+              );
             } else {
-              console.log(`[SCHEDULED_TASK] No last active thread found, using default for user: ${userId}`);
+              console.log(
+                `[SCHEDULED_TASK] No last active thread found, using default for user: ${userId}`
+              );
             }
           } catch (e) {
-            console.warn(`[SCHEDULED_TASK] Failed to get last active thread for user ${userId}, using default:`, e);
+            console.warn(
+              `[SCHEDULED_TASK] Failed to get last active thread for user ${userId}, using default:`,
+              e
+            );
           }
 
           const threadKey = `${userId}:thread:${threadId}`;
@@ -342,7 +372,9 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
       });
     } else {
       if (!userId)
-        console.warn(`[TASK] No userId available for scheduled task. Agent name: ${this.name}, Session: ${!!session}`);
+        console.warn(
+          `[TASK] No userId available for scheduled task. Agent name: ${this.name}, Session: ${!!session}`
+        );
       if (!kv)
         console.warn(
           "KV namespace not available, skipping chat history save (executeTask)."
@@ -354,7 +386,9 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
       try {
         this.setName(originalName);
       } catch (error) {
-        console.warn("Failed to restore original agent name after task execution");
+        console.warn(
+          "Failed to restore original agent name after task execution"
+        );
       }
     }
   }
@@ -368,7 +402,9 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
       // Validate threadId before creating metadata
       const validatedThreadId = threadId?.trim() || "default";
       if (validatedThreadId !== threadId) {
-        console.warn(`[THREAD_METADATA] Invalid threadId "${threadId}" corrected to "${validatedThreadId}"`);
+        console.warn(
+          `[THREAD_METADATA] Invalid threadId "${threadId}" corrected to "${validatedThreadId}"`
+        );
       }
 
       const threadsKey = `${userId}:threads`;
@@ -794,7 +830,8 @@ export default {
       } else if (request.method === "POST") {
         try {
           const body = (await request.json()) as { threadId?: string };
-          const threadId = body.threadId?.trim() || `thread_${crypto.randomUUID()}`;
+          const threadId =
+            body.threadId?.trim() || `thread_${crypto.randomUUID()}`;
 
           const threadsKey = `${userId}:threads`;
           const existingThreadsJson = await kv.get(threadsKey);
@@ -1026,6 +1063,70 @@ export default {
       const hasOpenAIKey = !!env.OPENAI_API_KEY;
       return Response.json({
         success: hasOpenAIKey,
+      });
+    }
+
+    // MCP Agent API Routes (Protected by authentication middleware)
+    if (url.pathname.startsWith("/api/")) {
+      // Agent management routes
+      if (url.pathname === "/api/agents" && request.method === "GET") {
+        return agentAPI.getAgents(env);
+      }
+      if (url.pathname === "/api/agents" && request.method === "POST") {
+        return agentAPI.createAgent(request, env);
+      }
+      if (
+        url.pathname.match(/^\/api\/agents\/[^\/]+$/) &&
+        request.method === "PUT"
+      ) {
+        const agentId = url.pathname.split("/").pop()!;
+        return agentAPI.updateAgent(request, env, agentId);
+      }
+      if (
+        url.pathname.match(/^\/api\/agents\/[^\/]+$/) &&
+        request.method === "DELETE"
+      ) {
+        const agentId = url.pathname.split("/").pop()!;
+        return agentAPI.deleteAgent(env, agentId);
+      }
+
+      // Thread-agent routes
+      if (
+        url.pathname.match(/^\/api\/threads\/[^\/]+\/agents$/) &&
+        request.method === "GET"
+      ) {
+        const threadId = url.pathname.split("/")[3];
+        return agentAPI.getThreadAgents(env, threadId);
+      }
+      if (
+        url.pathname.match(/^\/api\/threads\/[^\/]+\/agents$/) &&
+        request.method === "POST"
+      ) {
+        const threadId = url.pathname.split("/")[3];
+        return agentAPI.addAgentToThread(request, env, threadId);
+      }
+      if (
+        url.pathname.match(/^\/api\/threads\/[^\/]+\/agents\/[^\/]+$/) &&
+        request.method === "DELETE"
+      ) {
+        const pathParts = url.pathname.split("/");
+        const threadId = pathParts[3];
+        const agentId = pathParts[5];
+        return agentAPI.removeAgentFromThread(env, threadId, agentId);
+      }
+
+      // MCP group routes
+      if (url.pathname === "/api/mcp-groups" && request.method === "GET") {
+        return agentAPI.getMCPGroups(env);
+      }
+      if (url.pathname === "/api/mcp-groups" && request.method === "POST") {
+        return agentAPI.createMCPGroup(request, env);
+      }
+
+      // Return 404 for unhandled API routes
+      return new Response(JSON.stringify({ error: "API endpoint not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
       });
     }
 

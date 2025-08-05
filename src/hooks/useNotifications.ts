@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
+import type { MCPNotificationExtension } from "../types/mcp";
 
-export interface Notification {
+export interface Notification extends MCPNotificationExtension {
   id: string;
   title: string;
   message: string;
@@ -186,10 +187,13 @@ export const useNotifications = () => {
     setNotifications([]);
     // Also clear the persisted notified task completions and thread message counts when clearing all notifications
     try {
-      localStorage.removeItem('notifiedTaskCompletions');
-      localStorage.removeItem('threadMessageCounts');
+      localStorage.removeItem("notifiedTaskCompletions");
+      localStorage.removeItem("threadMessageCounts");
     } catch (error) {
-      console.error('Failed to clear notified task completions and thread counts:', error);
+      console.error(
+        "Failed to clear notified task completions and thread counts:",
+        error
+      );
     }
   }, []);
 
@@ -202,6 +206,113 @@ export const useNotifications = () => {
     });
     return threadsWithNotifications;
   }, [notifications]);
+
+  // Agent-specific notification methods
+  const addAgentToThread = useCallback(
+    (
+      threadId: string,
+      agentName: string,
+      reason?: string,
+      toolsAdded?: string[]
+    ) => {
+      return addNotification({
+        title: "Specialist Added",
+        message: `${agentName} joined the conversation${reason ? `: ${reason}` : ""}`,
+        type: "info",
+        threadId,
+        mcpEventType: "agent_added",
+        specialistChange: {
+          action: "added",
+          agentName,
+          reason,
+          toolsAdded,
+        },
+      });
+    },
+    [addNotification]
+  );
+
+  const removeAgentFromThread = useCallback(
+    (
+      threadId: string,
+      agentName: string,
+      reason?: string,
+      toolsRemoved?: string[]
+    ) => {
+      return addNotification({
+        title: "Specialist Removed",
+        message: `${agentName} left the conversation${reason ? `: ${reason}` : ""}`,
+        type: "info",
+        threadId,
+        mcpEventType: "agent_removed",
+        specialistChange: {
+          action: "removed",
+          agentName,
+          reason,
+          toolsRemoved,
+        },
+      });
+    },
+    [addNotification]
+  );
+
+  const addMCPAuthRequired = useCallback(
+    (serverName: string, serverId: string, groupId?: string) => {
+      return addNotification({
+        title: "Authentication Required",
+        message: `Please authenticate with ${serverName} to access its tools`,
+        type: "warning",
+        mcpEventType: "mcp_auth_required",
+        mcpServerId: serverId,
+        mcpGroupId: groupId,
+        mcpActionRequired: true,
+      });
+    },
+    [addNotification]
+  );
+
+  const addMCPConnectionFailed = useCallback(
+    (serverName: string, serverId: string, error: string) => {
+      return addNotification({
+        title: "Server Connection Failed",
+        message: `Could not connect to ${serverName}: ${error}`,
+        type: "error",
+        mcpEventType: "mcp_connection_failed",
+        mcpServerId: serverId,
+      });
+    },
+    [addNotification]
+  );
+
+  const addToolsUpdated = useCallback(
+    (
+      agentName: string,
+      toolsAdded: string[],
+      toolsRemoved: string[],
+      threadId?: string
+    ) => {
+      const changes = [];
+      if (toolsAdded.length > 0)
+        changes.push(`Added: ${toolsAdded.join(", ")}`);
+      if (toolsRemoved.length > 0)
+        changes.push(`Removed: ${toolsRemoved.join(", ")}`);
+
+      return addNotification({
+        title: "Tools Updated",
+        message: `${agentName} tools changed. ${changes.join("; ")}`,
+        type: "info",
+        threadId,
+        mcpEventType: "tools_updated",
+        specialistChange: {
+          action: "added", // This represents a change, not specifically add/remove
+          agentName,
+          toolsAdded,
+          toolsRemoved,
+        },
+      });
+    },
+    [addNotification]
+  );
 
   // Clean up old notifications (older than 7 days) periodically
   useEffect(() => {
@@ -231,5 +342,11 @@ export const useNotifications = () => {
     browserNotifications,
     requestNotificationPermission,
     toggleBrowserNotifications,
+    // Agent and MCP specific methods
+    addAgentToThread,
+    removeAgentFromThread,
+    addMCPAuthRequired,
+    addMCPConnectionFailed,
+    addToolsUpdated,
   };
 };

@@ -57,7 +57,11 @@ describe("Thread Refresh Duplication Bug", () => {
     });
 
     const ctx1 = createExecutionContext();
-    const createResponse = await worker.fetch(createRequest, mockEnvInstance, ctx1);
+    const createResponse = await worker.fetch(
+      createRequest,
+      mockEnvInstance,
+      ctx1
+    );
     await waitOnExecutionContext(ctx1);
 
     expect(createResponse.status).toBe(201);
@@ -76,12 +80,14 @@ describe("Thread Refresh Duplication Bug", () => {
     expect(threadsWithSameId).toHaveLength(1);
 
     // Step 4: Verify no threads with empty/undefined IDs
-    const threadsWithEmptyId = threads.filter((t: any) => !t.id || t.id.trim() === "");
+    const threadsWithEmptyId = threads.filter(
+      (t: any) => !t.id || t.id.trim() === ""
+    );
     expect(threadsWithEmptyId).toHaveLength(0);
 
     // Step 5: Check that all threads have valid UUID format
-    const validThreads = threads.filter((t: any) => 
-      t.id === "default" || t.id.startsWith("thread_")
+    const validThreads = threads.filter(
+      (t: any) => t.id === "default" || t.id.startsWith("thread_")
     );
     expect(validThreads).toHaveLength(threads.length);
   });
@@ -101,7 +107,11 @@ describe("Thread Refresh Duplication Bug", () => {
     });
 
     const ctx1 = createExecutionContext();
-    const createResponse = await worker.fetch(createRequest, mockEnvInstance, ctx1);
+    const createResponse = await worker.fetch(
+      createRequest,
+      mockEnvInstance,
+      ctx1
+    );
     await waitOnExecutionContext(ctx1);
 
     expect(createResponse.status).toBe(201);
@@ -119,7 +129,9 @@ describe("Thread Refresh Duplication Bug", () => {
     await waitOnExecutionContext(ctx2);
 
     const threads = await listResponse.json();
-    const matchingThreads = threads.filter((t: any) => t.id === createdThread.id);
+    const matchingThreads = threads.filter(
+      (t: any) => t.id === createdThread.id
+    );
     expect(matchingThreads).toHaveLength(1);
   });
 
@@ -141,7 +153,11 @@ describe("Thread Refresh Duplication Bug", () => {
       });
 
       const ctx = createExecutionContext();
-      const createResponse = await worker.fetch(createRequest, mockEnvInstance, ctx);
+      const createResponse = await worker.fetch(
+        createRequest,
+        mockEnvInstance,
+        ctx
+      );
       await waitOnExecutionContext(ctx);
 
       expect(createResponse.status).toBe(201);
@@ -159,7 +175,7 @@ describe("Thread Refresh Duplication Bug", () => {
     await waitOnExecutionContext(ctx);
 
     const threads = await listResponse.json();
-    
+
     // No empty or duplicate thread IDs
     const threadIds = threads.map((t: any) => t.id);
     const uniqueIds = new Set(threadIds);
@@ -177,26 +193,30 @@ describe("Thread Refresh Duplication Bug", () => {
     mockGetSession.mockResolvedValue(mockUserSession);
 
     // Create multiple threads concurrently
-    const threadIds = Array(3).fill(null).map(() => `thread_${crypto.randomUUID()}`);
-    
-    const createPromises = threadIds.map(threadId => {
+    const threadIds = Array(3)
+      .fill(null)
+      .map(() => `thread_${crypto.randomUUID()}`);
+
+    const createPromises = threadIds.map((threadId) => {
       const createRequest = new Request("http://localhost/threads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ threadId }),
       });
-      
+
       const ctx = createExecutionContext();
-      return worker.fetch(createRequest, mockEnvInstance, ctx).then(async (response) => {
-        await waitOnExecutionContext(ctx);
-        return response;
-      });
+      return worker
+        .fetch(createRequest, mockEnvInstance, ctx)
+        .then(async (response) => {
+          await waitOnExecutionContext(ctx);
+          return response;
+        });
     });
 
     const createResponses = await Promise.all(createPromises);
-    
+
     // All should succeed
-    createResponses.forEach(response => {
+    createResponses.forEach((response) => {
       expect(response.status).toBe(201);
     });
 
@@ -209,7 +229,7 @@ describe("Thread Refresh Duplication Bug", () => {
     const threads = await listResponse.json();
 
     // Verify each thread ID appears exactly once
-    threadIds.forEach(threadId => {
+    threadIds.forEach((threadId) => {
       const matchingThreads = threads.filter((t: any) => t.id === threadId);
       expect(matchingThreads).toHaveLength(1);
     });

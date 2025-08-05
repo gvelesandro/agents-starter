@@ -24,10 +24,20 @@
       "preview_id": "79997f3c3dae4b80a321eb5fcd6889ec",
     },
   ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mcp-agents-db",
+      "database_id": "00ef77ac-c329-448e-ae3d-193c94573dbd",
+      "migrations_dir": "migrations",
+    },
+  ],
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["Chat"],
+      "new_sqlite_classes": [
+        "Chat"
+      ],
     },
   ],
 }

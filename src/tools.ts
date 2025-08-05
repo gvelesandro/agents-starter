@@ -1,6 +1,7 @@
 /**
  * Tool definitions for the AI chat agent
  * Tools can either require human confirmation or execute automatically
+ * Now supports both built-in tools and MCP (Model Context Protocol) tools
  */
 import { tool } from "ai";
 import { z } from "zod";
@@ -8,6 +9,8 @@ import { z } from "zod";
 import type { Chat } from "./server";
 import { getCurrentAgent } from "agents";
 import { unstable_scheduleSchema } from "agents/schedule";
+import { mcpConnectionManager } from "./lib/mcp-connection";
+import type { MCPTool } from "./types/mcp";
 
 /**
  * Weather information tool that requires human confirmation
@@ -132,3 +135,114 @@ export const executions = {
     return `The weather in ${city} is sunny`;
   },
 };
+
+/**
+ * Enhanced tool system for MCP integration
+ * These functions combine built-in tools with MCP tools for specific threads/agents
+ */
+
+/**
+ * Get combined tools for a specific thread (built-in + MCP)
+ * This will be called by the agent system to provide all available tools
+ */
+export async function getCombinedToolsForThread(
+  threadId: string
+): Promise<Record<string, any>> {
+  // Start with built-in tools
+  const combinedTools = { ...tools };
+
+  // TODO: Add MCP tools based on thread's active agents
+  // const mcpTools = await getMCPToolsForThread(threadId);
+  // Object.assign(combinedTools, mcpTools);
+
+  return combinedTools;
+}
+
+/**
+ * Get combined executions for a specific thread (built-in + MCP)
+ * This includes both confirmation-required and auto-execute functions
+ */
+export async function getCombinedExecutionsForThread(
+  threadId: string
+): Promise<Record<string, any>> {
+  // Start with built-in executions
+  const combinedExecutions = { ...executions };
+
+  // TODO: Add MCP executions based on thread's active agents
+  // const mcpExecutions = await getMCPExecutionsForThread(threadId);
+  // Object.assign(combinedExecutions, mcpExecutions);
+
+  return combinedExecutions;
+}
+
+/**
+ * Create MCP tool wrapper that follows the same pattern as built-in tools
+ * This converts MCP tools to the format expected by the AI system
+ */
+export function createMCPToolWrapper(mcpTool: MCPTool) {
+  const { name, description, schema, requiresConfirmation, serverId } = mcpTool;
+
+  if (requiresConfirmation) {
+    // Create tool that requires confirmation (no execute function)
+    return tool({
+      description,
+      parameters: z.object(schema.properties || {}),
+      // No execute function = requires confirmation
+    });
+  } else {
+    // Create auto-executing tool
+    return tool({
+      description,
+      parameters: z.object(schema.properties || {}),
+      execute: async (parameters: any) => {
+        try {
+          const execution = await mcpConnectionManager.executeTool(
+            serverId,
+            name,
+            parameters
+          );
+
+          if (execution.error) {
+            console.error(`MCP tool ${name} failed:`, execution.error);
+            return `Tool temporarily unavailable: ${execution.error}`;
+          }
+
+          return execution.result;
+        } catch (error) {
+          console.error(`MCP tool execution error:`, error);
+          return `Tool temporarily unavailable. Please try again later.`;
+        }
+      },
+    });
+  }
+}
+
+/**
+ * Create MCP execution function for confirmation-required tools
+ * This handles the actual execution after user confirmation
+ */
+export function createMCPExecutionWrapper(mcpTool: MCPTool) {
+  return async (parameters: any) => {
+    try {
+      const execution = await mcpConnectionManager.executeTool(
+        mcpTool.serverId,
+        mcpTool.name,
+        parameters
+      );
+
+      if (execution.error) {
+        console.error(`MCP tool ${mcpTool.name} failed:`, execution.error);
+        throw new Error(`Tool failed: ${execution.error}`);
+      }
+
+      return execution.result;
+    } catch (error) {
+      console.error(`MCP execution error:`, error);
+      throw error;
+    }
+  };
+}
+
+// Export MCP utilities for use in other parts of the system
+export { mcpConnectionManager } from "./lib/mcp-connection";
+export type { MCPTool } from "./types/mcp";

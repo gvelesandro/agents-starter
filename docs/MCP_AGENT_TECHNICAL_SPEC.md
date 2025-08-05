@@ -56,11 +56,11 @@ interface MCPServerConfig {
   id: string;
   name: string;
   url: string;
-  transport: 'websocket' | 'sse';
+  transport: "websocket" | "sse";
   userId: string;
   groupId: string;
   auth: {
-    type: 'none' | 'apikey' | 'basic' | 'oauth2' | 'custom';
+    type: "none" | "apikey" | "basic" | "oauth2" | "custom";
     apiKey?: string;
     username?: string;
     password?: string;
@@ -75,7 +75,12 @@ interface MCPServerConfig {
     };
     customHeaders?: Record<string, string>;
   };
-  status: 'connected' | 'disconnected' | 'error' | 'authenticating' | 'pending_auth';
+  status:
+    | "connected"
+    | "disconnected"
+    | "error"
+    | "authenticating"
+    | "pending_auth";
   isEnabled: boolean;
   lastConnected?: Date;
   createdAt: Date;
@@ -88,7 +93,7 @@ interface ThreadAgentState {
   activeAgents: {
     agentId: string;
     agentName: string;
-    role: 'primary' | 'specialist';
+    role: "primary" | "specialist";
     addedAt: Date;
     addedReason?: string;
     toolGroups: string[];
@@ -96,7 +101,7 @@ interface ThreadAgentState {
   agentHistory: {
     agentId: string;
     agentName: string;
-    action: 'added' | 'removed';
+    action: "added" | "removed";
     timestamp: Date;
     reason?: string;
     messageRange?: { start: number; end?: number };
@@ -118,13 +123,18 @@ interface Notification {
   agentIds?: string[];
   mcpServerId?: string;
   mcpGroupId?: string;
-  mcpEventType?: 'agent_added' | 'agent_removed' | 'mcp_auth_required' | 
-                 'tools_updated' | 'mcp_connection_failed' | 'agent_switched';
+  mcpEventType?:
+    | "agent_added"
+    | "agent_removed"
+    | "mcp_auth_required"
+    | "tools_updated"
+    | "mcp_connection_failed"
+    | "agent_switched";
   mcpActionRequired?: boolean;
-  toolSource?: 'builtin' | 'mcp';
+  toolSource?: "builtin" | "mcp";
   toolName?: string;
   specialistChange?: {
-    action: 'added' | 'removed';
+    action: "added" | "removed";
     agentName: string;
     reason?: string;
     toolsAdded?: string[];
@@ -314,7 +324,7 @@ const MCP_RELIABILITY_CONFIG = {
   maxRetries: 3,
   retryDelayMs: 1000,
   timeoutMs: 10000,
-  fallbackMessage: "MCP server temporarily unavailable"
+  fallbackMessage: "MCP server temporarily unavailable",
 };
 
 async function withMCPRetry<T>(
@@ -332,12 +342,9 @@ async function withMCPRetry<T>(
 ## UI Component Specifications
 
 ### Agent Quick Selector
+
 ```typescript
-const AgentQuickSelector = ({ 
-  threadId, 
-  currentAgents, 
-  onAgentChange 
-}) => {
+const AgentQuickSelector = ({ threadId, currentAgents, onAgentChange }) => {
   // Dropdown showing current agents
   // Quick switch between agent configurations
   // "Manage Agents" link to full management
@@ -345,6 +352,7 @@ const AgentQuickSelector = ({
 ```
 
 ### Agent Management Panel
+
 ```typescript
 const AgentManagementPanel = () => {
   // Collapsible sidebar section
@@ -355,13 +363,9 @@ const AgentManagementPanel = () => {
 ```
 
 ### MCP Server Configuration Modal
+
 ```typescript
-const MCPServerModal = ({ 
-  serverId, 
-  groupId, 
-  onSave, 
-  onClose 
-}) => {
+const MCPServerModal = ({ serverId, groupId, onSave, onClose }) => {
   // Server connection details
   // Authentication configuration
   // OAuth flow handling
@@ -372,22 +376,26 @@ const MCPServerModal = ({
 ## Notification System Enhancement
 
 ### Enhanced useNotifications Hook
+
 ```typescript
 export const useNotifications = () => {
   // Existing notification functionality (unchanged)
-  
+
   // New agent-specific notification methods
-  const addAgentToThread = useCallback((threadId, agentName, reason, toolsAdded) => {
-    return addNotification({
-      title: 'Specialist Added',
-      message: `${agentName} joined the conversation: ${reason}`,
-      type: 'info',
-      threadId,
-      agentEventType: 'agent_added',
-      specialistChange: { action: 'added', agentName, reason, toolsAdded }
-    });
-  }, [addNotification]);
-  
+  const addAgentToThread = useCallback(
+    (threadId, agentName, reason, toolsAdded) => {
+      return addNotification({
+        title: "Specialist Added",
+        message: `${agentName} joined the conversation: ${reason}`,
+        type: "info",
+        threadId,
+        agentEventType: "agent_added",
+        specialistChange: { action: "added", agentName, reason, toolsAdded },
+      });
+    },
+    [addNotification]
+  );
+
   // Additional MCP-specific notification methods
   // OAuth flow notifications
   // Server connection status notifications
@@ -398,18 +406,21 @@ export const useNotifications = () => {
 ## Security Considerations
 
 ### OAuth Flow Security
+
 - CSRF protection via state parameter
 - Secure token storage (encrypted at rest)
 - Token refresh handling
 - Scope validation
 
 ### MCP Server Authentication
+
 - Credential encryption using Cloudflare's encryption APIs
 - Per-user credential isolation
 - Secure credential transmission
 - Authentication failure handling
 
 ### User Data Protection
+
 - Per-user data isolation in D1
 - Agent configuration privacy
 - Audit logging for sensitive operations
@@ -417,17 +428,20 @@ export const useNotifications = () => {
 ## Performance Requirements
 
 ### MCP Operations
+
 - Tool discovery: <2s per server
 - Tool execution: <10s with timeout
 - Agent switching: <500ms UI response
 - Fallback activation: <100ms
 
 ### Database Operations
+
 - Agent list loading: <200ms
 - MCP server status check: <1s
 - Thread agent assignment: <100ms
 
 ### UI Responsiveness
+
 - Agent selector rendering: <100ms
 - Notification display: <50ms
 - Modal opening: <200ms
@@ -435,6 +449,7 @@ export const useNotifications = () => {
 ## Error Handling Patterns
 
 ### MCP Server Failures
+
 ```typescript
 // Graceful degradation
 try {
@@ -442,28 +457,29 @@ try {
   return result;
 } catch (error) {
   console.error(`MCP tool ${toolName} failed:`, error);
-  
+
   // Notify user
   addNotification({
-    title: 'Tool Temporarily Unavailable',
+    title: "Tool Temporarily Unavailable",
     message: `${serverName}.${toolName} is experiencing issues`,
-    type: 'warning'
+    type: "warning",
   });
-  
+
   // Return fallback response
   return `${toolName} is temporarily unavailable. Please try again later.`;
 }
 ```
 
 ### OAuth Flow Failures
+
 ```typescript
 // Clear error messages and recovery options
 if (oauthError) {
   addNotification({
-    title: 'Authentication Failed',
+    title: "Authentication Failed",
     message: `Could not connect to ${serverName}. Check your permissions.`,
-    type: 'error',
-    mcpActionRequired: true
+    type: "error",
+    mcpActionRequired: true,
   });
 }
 ```
@@ -471,18 +487,21 @@ if (oauthError) {
 ## Testing Strategy
 
 ### Unit Tests
+
 - MCP server connection logic
 - Tool reliability layer
 - Agent CRUD operations
 - Notification system enhancements
 
 ### Integration Tests
+
 - OAuth flow end-to-end
 - Agent-thread assignment
 - Tool execution with fallbacks
 - Cross-browser compatibility
 
 ### Performance Tests
+
 - MCP server response times
 - Agent switching latency
 - Database query performance
@@ -491,6 +510,7 @@ if (oauthError) {
 ## Deployment Considerations
 
 ### Environment Variables
+
 ```
 OPENAI_API_KEY=xxx
 MCP_ENCRYPTION_KEY=xxx
@@ -499,11 +519,13 @@ D1_DATABASE_ID=xxx
 ```
 
 ### Database Migrations
+
 - D1 schema creation scripts
 - Data migration for existing users
 - Index creation for performance
 
 ### Feature Flags
+
 - MCP system enable/disable
 - OAuth provider toggles
 - Advanced agent features
