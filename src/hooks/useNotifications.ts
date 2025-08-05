@@ -172,13 +172,36 @@ export const useNotifications = () => {
     );
   }, []);
 
+  const markThreadAsRead = useCallback((threadId: string) => {
+    setNotifications((prev) =>
+      prev.map((n) => (n.threadId === threadId ? { ...n, read: true } : n))
+    );
+  }, []);
+
   const markAllAsRead = useCallback(() => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   }, []);
 
   const clearAll = useCallback(() => {
     setNotifications([]);
+    // Also clear the persisted notified task completions and thread message counts when clearing all notifications
+    try {
+      localStorage.removeItem('notifiedTaskCompletions');
+      localStorage.removeItem('threadMessageCounts');
+    } catch (error) {
+      console.error('Failed to clear notified task completions and thread counts:', error);
+    }
   }, []);
+
+  const getThreadsWithNotifications = useCallback(() => {
+    const threadsWithNotifications = new Set<string>();
+    notifications.forEach((notification) => {
+      if (notification.threadId && !notification.read) {
+        threadsWithNotifications.add(notification.threadId);
+      }
+    });
+    return threadsWithNotifications;
+  }, [notifications]);
 
   // Clean up old notifications (older than 7 days) periodically
   useEffect(() => {
@@ -200,9 +223,11 @@ export const useNotifications = () => {
     addNotification,
     dismissNotification,
     markAsRead,
+    markThreadAsRead,
     markAllAsRead,
     clearAll,
     unreadCount: notifications.filter((n) => !n.read).length,
+    getThreadsWithNotifications,
     browserNotifications,
     requestNotificationPermission,
     toggleBrowserNotifications,
