@@ -930,7 +930,7 @@ export default function Chat() {
 
   const loadCurrentThreadAgents = async () => {
     try {
-      const response = await fetch(`/api/agents/thread/${currentThreadId}`);
+      const response = await fetch(`/api/threads/${currentThreadId}/agents`);
       if (response.ok) {
         const data = await response.json() as any;
         const agents = data.agents || [];
@@ -955,15 +955,54 @@ export default function Chat() {
   };
 
   const handleAgentChange = async (agents: any[]) => {
+    console.log("Agent change requested:", agents);
+    console.log("Current agents:", currentAgents);
+    
     try {
-      const response = await fetch(`/api/agents/thread/${currentThreadId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agentIds: agents.map(a => a.id) }),
-      });
-      if (response.ok) {
-        setCurrentAgents(agents);
+      // Find agents that were added (in new list but not in current)
+      const addedAgents = agents.filter(agent => 
+        !currentAgents.some(current => current.id === agent.id)
+      );
+      
+      // Find agents that were removed (in current but not in new list)
+      const removedAgents = currentAgents.filter(current => 
+        !agents.some(agent => agent.id === current.id)
+      );
+
+      console.log("Agents to add:", addedAgents);
+      console.log("Agents to remove:", removedAgents);
+
+      // Add new agents
+      for (const agent of addedAgents) {
+        const response = await fetch(`/api/threads/${currentThreadId}/agents`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            agentId: agent.id,
+            role: "primary",
+            reason: "Added via agent selector"
+          }),
+        });
+        if (!response.ok) {
+          console.error("Failed to add agent:", response.status);
+          return;
+        }
       }
+
+      // Remove agents
+      for (const agent of removedAgents) {
+        const response = await fetch(`/api/threads/${currentThreadId}/agents/${agent.id}`, {
+          method: "DELETE",
+        });
+        if (!response.ok) {
+          console.error("Failed to remove agent:", response.status);
+          return;
+        }
+      }
+
+      // Update local state
+      setCurrentAgents(agents);
+      console.log("Agent change completed successfully");
     } catch (error) {
       console.error("Failed to update thread agents:", error);
     }
