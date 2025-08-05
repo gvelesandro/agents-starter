@@ -489,16 +489,16 @@ const ChatInterface: React.FC<{
     isLoading: isAgentLoading,
     stop,
   } = canUseAgentChat
-    ? agentChatResult
-    : {
+      ? agentChatResult
+      : {
         messages: [],
         input: "",
-        handleInputChange: () => {},
-        handleSubmit: () => {},
-        addToolResult: () => {},
-        clearHistory: () => {},
+        handleInputChange: () => { },
+        handleSubmit: () => { },
+        addToolResult: () => { },
+        clearHistory: () => { },
         isLoading: false,
-        stop: () => {},
+        stop: () => { },
       };
 
   // Component remounting via key prop handles thread switching
@@ -685,9 +685,8 @@ const ChatInterface: React.FC<{
                 className={`flex ${isUser ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`flex gap-2 max-w-[85%] ${
-                    isUser ? "flex-row-reverse" : "flex-row"
-                  }`}
+                  className={`flex gap-2 max-w-[85%] ${isUser ? "flex-row-reverse" : "flex-row"
+                    }`}
                 >
                   {showAvatar && !isUser ? (
                     <Avatar username={"AI"} />
@@ -702,15 +701,13 @@ const ChatInterface: React.FC<{
                           return (
                             <div key={i}>
                               <Card
-                                className={`p-3 rounded-md bg-neutral-100 dark:bg-neutral-900 ${
-                                  isUser
+                                className={`p-3 rounded-md bg-neutral-100 dark:bg-neutral-900 ${isUser
                                     ? "rounded-br-none"
                                     : "rounded-bl-none border-assistant-border"
-                                } ${
-                                  part.text.startsWith("scheduled message")
+                                  } ${part.text.startsWith("scheduled message")
                                     ? "border-accent/50"
                                     : ""
-                                } relative`}
+                                  } relative`}
                               >
                                 {part.text.startsWith("scheduled message") && (
                                   <span className="absolute -top-3 -left-2 text-base">
@@ -726,9 +723,8 @@ const ChatInterface: React.FC<{
                                 />
                               </Card>
                               <p
-                                className={`text-xs text-muted-foreground mt-1 ${
-                                  isUser ? "text-right" : "text-left"
-                                }`}
+                                className={`text-xs text-muted-foreground mt-1 ${isUser ? "text-right" : "text-left"
+                                  }`}
                               >
                                 {formatTime(messageDate)}
                               </p>

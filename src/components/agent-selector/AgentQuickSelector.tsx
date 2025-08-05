@@ -64,13 +64,13 @@ export const AgentQuickSelector: React.FC<AgentQuickSelectorProps> = ({
     const getAgentStatusColor = (agent: Agent) => {
         // Colors: blue, green, red, yellow, purple, pink, indigo
         const colorMap: Record<string, string> = {
-            blue: "bg-blue-100 text-blue-800 border-blue-200",
-            green: "bg-green-100 text-green-800 border-green-200",
-            red: "bg-red-100 text-red-800 border-red-200",
-            yellow: "bg-yellow-100 text-yellow-800 border-yellow-200",
-            purple: "bg-purple-100 text-purple-800 border-purple-200",
-            pink: "bg-pink-100 text-pink-800 border-pink-200",
-            indigo: "bg-indigo-100 text-indigo-800 border-indigo-200",
+            blue: "bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 border-blue-200 dark:border-blue-700",
+            green: "bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 border-green-200 dark:border-green-700",
+            red: "bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 border-red-200 dark:border-red-700",
+            yellow: "bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 border-yellow-200 dark:border-yellow-700",
+            purple: "bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 border-purple-200 dark:border-purple-700",
+            pink: "bg-pink-100 dark:bg-pink-900 text-pink-800 dark:text-pink-200 border-pink-200 dark:border-pink-700",
+            indigo: "bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 border-indigo-200 dark:border-indigo-700",
         };
         return colorMap[agent.color] || colorMap.blue;
     };
@@ -80,40 +80,40 @@ export const AgentQuickSelector: React.FC<AgentQuickSelectorProps> = ({
             {/* Trigger Button */}
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="flex items-center space-x-2 px-3 py-2 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                className="flex items-center space-x-2 px-3 py-2 bg-white dark:bg-neutral-800 border border-gray-300 dark:border-neutral-600 rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
             >
-                <User className="h-4 w-4 text-gray-500" />
-                <span className="text-gray-700">{getDisplayText()}</span>
+                <User className="h-4 w-4 text-gray-500 dark:text-neutral-400" />
+                <span className="text-gray-700 dark:text-neutral-200">{getDisplayText()}</span>
                 <CaretDown
-                    className={`h-4 w-4 text-gray-400 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                    className={`h-4 w-4 text-gray-400 dark:text-neutral-400 transition-transform ${isOpen ? "rotate-180" : ""}`}
                 />
             </button>
 
             {/* Dropdown Menu */}
             {isOpen && (
-                <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                <div className="absolute top-full left-0 mt-1 w-80 bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-600 rounded-lg shadow-lg z-50">
                     <div className="py-2">
                         {/* Current Agents Section */}
                         {currentAgents.length > 0 && (
                             <>
-                                <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <div className="px-3 py-2 text-xs font-medium text-gray-500 dark:text-neutral-400 uppercase tracking-wider">
                                     Active Agents
                                 </div>
                                 {currentAgents.map((agent) => (
                                     <div
                                         key={agent.id}
-                                        className="flex items-center justify-between px-3 py-2 hover:bg-gray-50"
+                                        className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 dark:hover:bg-neutral-700"
                                     >
                                         <div className="flex items-center space-x-3">
                                             <div
-                                                className={`w-3 h-3 rounded-full ${getAgentStatusColor(agent).split(" ")[0]}`}
+                                                className={`w-3 h-3 rounded-full ${getAgentStatusColor(agent).split(" ")[0]} ${getAgentStatusColor(agent).split(" ")[1]}`}
                                             />
                                             <div>
-                                                <div className="text-sm font-medium text-gray-900">
+                                                <div className="text-sm font-medium text-gray-900 dark:text-neutral-100">
                                                     {agent.name}
                                                 </div>
                                                 {agent.description && (
-                                                    <div className="text-xs text-gray-500 truncate max-w-48">
+                                                    <div className="text-xs text-gray-500 dark:text-neutral-400 truncate max-w-48">
                                                         {agent.description}
                                                     </div>
                                                 )}
@@ -121,18 +121,18 @@ export const AgentQuickSelector: React.FC<AgentQuickSelectorProps> = ({
                                         </div>
                                         <button
                                             onClick={() => handleAgentToggle(agent)}
-                                            className="text-xs text-red-600 hover:text-red-800 font-medium"
+                                            className="text-xs text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 font-medium"
                                         >
                                             Remove
                                         </button>
                                     </div>
                                 ))}
-                                <div className="border-t border-gray-100 my-2" />
+                                <div className="border-t border-gray-100 dark:border-neutral-600 my-2" />
                             </>
                         )}
 
                         {/* Available Agents Section */}
-                        <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <div className="px-3 py-2 text-xs font-medium text-gray-500 dark:text-neutral-400 uppercase tracking-wider">
                             Available Agents
                         </div>
 
@@ -142,37 +142,37 @@ export const AgentQuickSelector: React.FC<AgentQuickSelectorProps> = ({
                                 <button
                                     key={agent.id}
                                     onClick={() => handleAgentToggle(agent)}
-                                    className="w-full flex items-center space-x-3 px-3 py-2 hover:bg-gray-50 text-left"
+                                    className="w-full flex items-center space-x-3 px-3 py-2 hover:bg-gray-50 dark:hover:bg-neutral-700 text-left"
                                 >
                                     <div
-                                        className={`w-3 h-3 rounded-full ${getAgentStatusColor(agent).split(" ")[0]}`}
+                                        className={`w-3 h-3 rounded-full ${getAgentStatusColor(agent).split(" ")[0]} ${getAgentStatusColor(agent).split(" ")[1]}`}
                                     />
                                     <div className="flex-1 min-w-0">
-                                        <div className="text-sm font-medium text-gray-900">
+                                        <div className="text-sm font-medium text-gray-900 dark:text-neutral-100">
                                             {agent.name}
                                         </div>
                                         {agent.description && (
-                                            <div className="text-xs text-gray-500 truncate">
+                                            <div className="text-xs text-gray-500 dark:text-neutral-400 truncate">
                                                 {agent.description}
                                             </div>
                                         )}
-                                        <div className="text-xs text-gray-400">
+                                        <div className="text-xs text-gray-400 dark:text-neutral-500">
                                             {agent.mcpGroupIds.length} tool group
                                             {agent.mcpGroupIds.length !== 1 ? "s" : ""}
                                         </div>
                                     </div>
-                                    <Plus className="h-4 w-4 text-gray-400" />
+                                    <Plus className="h-4 w-4 text-gray-400 dark:text-neutral-500" />
                                 </button>
                             ))}
 
                         {/* Manage Agents Link */}
-                        <div className="border-t border-gray-100 mt-2">
+                        <div className="border-t border-gray-100 dark:border-neutral-600 mt-2">
                             <button
                                 onClick={() => {
                                     setIsOpen(false);
                                     onManageAgents();
                                 }}
-                                className="w-full flex items-center space-x-3 px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                                className="w-full flex items-center space-x-3 px-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-700 dark:hover:text-blue-300"
                             >
                                 <Plus className="h-4 w-4" />
                                 <span>Manage Agents</span>
