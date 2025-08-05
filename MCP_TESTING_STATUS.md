@@ -59,19 +59,40 @@
 - TypeScript Types: Generated and synchronized
 ```
 
-## 🎯 READY FOR PHASE 2: Integration Testing
+## 🎯 PHASE 2: Integration Testing - IN PROGRESS
 
 ### ✅ UI Integration Complete
 1. **Agent Quick Selector**: Added to main header for easy agent switching per thread
 2. **Agent Management Panel**: Modal interface for creating, editing, and managing agents
 3. **MCP Group Management**: Support for organizing agents by tool categories
 4. **Thread-Scoped Agents**: Each conversation can have different specialized agents
+5. **Dark Mode Support**: Full dark mode compatibility for all agent components
 
-### Immediate Next Steps
-1. **Authentication Flow**: Complete GitHub OAuth in browser at localhost:56193
-2. **Agent Creation**: Create your first AI agent with specialized persona and tools
-3. **MCP Server Connection**: Connect external MCP servers for enhanced capabilities
-4. **Thread Testing**: Test agent assignment and switching between conversations
+### 🔧 Recent Fixes Applied
+- **API Endpoint Correction**: Fixed `/api/agents/thread/{id}` → `/api/threads/{id}/agents`
+- **HTTP Method Fix**: Changed from PUT batch updates to individual POST/DELETE operations
+- **Debug Logging**: Added comprehensive console logging for troubleshooting
+
+### ✅ Authentication Working
+- **User Authentication**: Successfully logged in and accessing authenticated routes
+- **Agent Selection**: UI responds to clicks without auth redirects
+- **Session Management**: Cookies and session handling working correctly
+
+### 🔍 Current Testing Phase
+**Agent Assignment Functionality**:
+- User can see and click on available agents ✅
+- Console debug logs should show API calls and responses
+- Agent should move from "Available" to "Active" section
+- Database should record thread-agent associations
+
+### Debugging Steps
+1. **Open Browser Console** (F12 → Console tab)
+2. **Click on an agent** in the dropdown
+3. **Check console logs** for:
+   - "Agent change requested:" with agent data
+   - "Agents to add:" showing the selected agent
+   - API request success/failure messages
+4. **Verify in UI**: Agent should appear in "Active Agents" section
 
 ### Test Scenarios Ready
 - ✅ Agent Creation and Management
