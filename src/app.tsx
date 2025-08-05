@@ -33,6 +33,10 @@ import { NotificationButton } from "@/components/notifications/NotificationButto
 import { useTaskMessageNotifications } from "@/hooks/useTaskMessageNotifications";
 import { useNotificationContext } from "@/providers/NotificationProvider";
 
+// MCP Agent imports
+import { AgentQuickSelector } from "@/components/agent-selector/AgentQuickSelector";
+import { AgentManagementPanel } from "@/components/agent-selector/AgentManagementPanel";
+
 // List of tools that require human confirmation
 const toolsRequiringConfirmation: (keyof typeof tools)[] = [
   "getWeatherInformation",
@@ -899,6 +903,120 @@ export default function Chat() {
     }
     return "default";
   });
+
+  // MCP Agent state management
+  const [currentAgents, setCurrentAgents] = useState<any[]>([]);
+  const [availableAgents, setAvailableAgents] = useState<any[]>([]);
+  const [mcpGroups, setMcpGroups] = useState<any[]>([]);
+  const [showAgentManagement, setShowAgentManagement] = useState(false);
+
+  // Load available agents when user loads
+  useEffect(() => {
+    if (currentUser?.userId) {
+      loadAvailableAgents();
+      loadCurrentThreadAgents();
+      loadMcpGroups();
+    }
+  }, [currentUser?.userId, currentThreadId]);
+
+  const loadAvailableAgents = async () => {
+    try {
+      const response = await fetch("/api/agents");
+      if (response.ok) {
+        const data = await response.json() as any;
+        const agents = data.agents || [];
+        setAvailableAgents(Array.isArray(agents) ? agents : []);
+      }
+    } catch (error) {
+      console.error("Failed to load available agents:", error);
+    }
+  };
+
+  const loadCurrentThreadAgents = async () => {
+    try {
+      const response = await fetch(`/api/agents/thread/${currentThreadId}`);
+      if (response.ok) {
+        const data = await response.json() as any;
+        const agents = data.agents || [];
+        setCurrentAgents(Array.isArray(agents) ? agents : []);
+      }
+    } catch (error) {
+      console.error("Failed to load thread agents:", error);
+    }
+  };
+
+  const loadMcpGroups = async () => {
+    try {
+      const response = await fetch("/api/mcp-groups");
+      if (response.ok) {
+        const data = await response.json() as any;
+        const groups = data.groups || [];
+        setMcpGroups(Array.isArray(groups) ? groups : []);
+      }
+    } catch (error) {
+      console.error("Failed to load MCP groups:", error);
+    }
+  };
+
+  const handleAgentChange = async (agents: any[]) => {
+    try {
+      const response = await fetch(`/api/agents/thread/${currentThreadId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentIds: agents.map(a => a.id) }),
+      });
+      if (response.ok) {
+        setCurrentAgents(agents);
+      }
+    } catch (error) {
+      console.error("Failed to update thread agents:", error);
+    }
+  };
+
+  const handleCreateAgent = async (agentData: any) => {
+    try {
+      const response = await fetch("/api/agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(agentData),
+      });
+      if (response.ok) {
+        loadAvailableAgents();
+      }
+    } catch (error) {
+      console.error("Failed to create agent:", error);
+    }
+  };
+
+  const handleUpdateAgent = async (agentId: string, updates: any) => {
+    try {
+      const response = await fetch(`/api/agents/${agentId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      if (response.ok) {
+        loadAvailableAgents();
+        loadCurrentThreadAgents();
+      }
+    } catch (error) {
+      console.error("Failed to update agent:", error);
+    }
+  };
+
+  const handleDeleteAgent = async (agentId: string) => {
+    try {
+      const response = await fetch(`/api/agents/${agentId}`, {
+        method: "DELETE",
+      });
+      if (response.ok) {
+        loadAvailableAgents();
+        loadCurrentThreadAgents();
+      }
+    } catch (error) {
+      console.error("Failed to delete agent:", error);
+    }
+  };
   // Sidebar should be open on desktop by default, closed on mobile
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
     // Check if we're on desktop (this will be false during SSR, but that's ok)
@@ -1086,6 +1204,15 @@ export default function Chat() {
                 </Button>
               )}
               <h1 className="text-xl font-semibold">Chat Agent</h1>
+              {currentUser && availableAgents.length > 0 && (
+                <AgentQuickSelector
+                  threadId={currentThreadId}
+                  currentAgents={currentAgents}
+                  availableAgents={availableAgents}
+                  onAgentChange={handleAgentChange}
+                  onManageAgents={() => setShowAgentManagement(true)}
+                />
+              )}
             </div>
             {/* Theme and other controls can be moved here if they are app-level */}
             {/* Or keep them in ChatInterface if they are chat-specific */}
@@ -1184,6 +1311,23 @@ export default function Chat() {
           )}
         </div>
       </div>
+
+      {/* Agent Management Modal */}
+      {showAgentManagement && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-neutral-900 rounded-lg w-full max-w-4xl max-h-[90vh] overflow-hidden">
+            <AgentManagementPanel
+              isOpen={showAgentManagement}
+              onClose={() => setShowAgentManagement(false)}
+              agents={availableAgents}
+              mcpGroups={mcpGroups}
+              onCreateAgent={handleCreateAgent}
+              onUpdateAgent={handleUpdateAgent}
+              onDeleteAgent={handleDeleteAgent}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
