@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/button/Button";
 import { Plus, Chat, Trash, X } from "@phosphor-icons/react";
+import { useNotificationContext } from "@/providers/NotificationProvider";
 
 interface Thread {
   id: string;
@@ -31,6 +32,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [threads, setThreads] = useState<Thread[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastRefreshTime, setLastRefreshTime] = useState<number>(Date.now());
+
+  // Get threads with active notifications
+  const { getThreadsWithNotifications, markThreadAsRead } = useNotificationContext();
+  const threadsWithNotifications = getThreadsWithNotifications();
+
+  const handleThreadSelect = (threadId: string) => {
+    // Mark notifications for this thread as read when selecting it
+    if (threadsWithNotifications.has(threadId)) {
+      markThreadAsRead(threadId);
+    }
+    onThreadSelect(threadId);
+  };
 
   useEffect(() => {
     if (currentUser) {
@@ -202,22 +215,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {threads.map((thread) => (
                 <div
                   key={thread.id}
-                  onClick={() => onThreadSelect(thread.id)}
+                  onClick={() => handleThreadSelect(thread.id)}
                   className={`
                     group flex items-center justify-between p-3 rounded-lg cursor-pointer
                     hover:bg-neutral-100 dark:hover:bg-neutral-800
-                    ${
-                      currentThreadId === thread.id
-                        ? "bg-neutral-100 dark:bg-neutral-800 border-l-2 border-blue-500"
-                        : ""
+                    ${currentThreadId === thread.id
+                      ? "bg-neutral-100 dark:bg-neutral-800 border-l-2 border-blue-500"
+                      : ""
                     }
                   `}
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <Chat
-                      size={16}
-                      className="text-neutral-500 flex-shrink-0"
-                    />
+                    <div className="relative">
+                      <Chat
+                        size={16}
+                        className="text-neutral-500 flex-shrink-0"
+                      />
+                      {threadsWithNotifications.has(thread.id) && (
+                        <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full border border-white dark:border-neutral-900 animate-pulse"></div>
+                      )}
+                    </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium truncate">
                         {thread.title}
