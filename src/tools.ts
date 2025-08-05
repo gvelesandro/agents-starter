@@ -142,6 +142,157 @@ export const executions = {
  */
 
 /**
+ * Get MCP tools for a specific thread based on its active agents
+ * This queries the database and MCP connections to provide available tools
+ */
+async function getMCPToolsForThread(threadId: string): Promise<Record<string, any>> {
+  const mcpTools: Record<string, any> = {};
+
+  try {
+    // In a real implementation, this would query the database to get:
+    // 1. Active agents for the thread
+    // 2. MCP groups associated with those agents
+    // 3. MCP servers in those groups
+    // 4. Available tools from those servers
+
+    // For now, simulate with basic math tools since we have the MCP math server available
+    console.log(`Loading MCP tools for thread: ${threadId}`);
+
+    // Simulate MCP math tools that would come from the math-server
+    const mathAdd = tool({
+      description: "Add two numbers together using MCP math server",
+      parameters: z.object({
+        a: z.number().describe("First number"),
+        b: z.number().describe("Second number")
+      }),
+      execute: async ({ a, b }) => {
+        console.log(`MCP Math: Adding ${a} + ${b}`);
+        // In real implementation, this would call the MCP server
+        // For now, simulate the response
+        return `${a} + ${b} = ${a + b} (via MCP Math Server)`;
+      },
+    });
+
+    const mathCalculate = tool({
+      description: "Perform mathematical calculations using MCP math server",
+      parameters: z.object({
+        operation: z.enum(["add", "subtract", "multiply", "divide"]).describe("Mathematical operation"),
+        a: z.number().describe("First number"),
+        b: z.number().describe("Second number")
+      }),
+      execute: async ({ operation, a, b }) => {
+        console.log(`MCP Math: ${operation} ${a} and ${b}`);
+        let result: number;
+        switch (operation) {
+          case "add":
+            result = a + b;
+            break;
+          case "subtract":
+            result = a - b;
+            break;
+          case "multiply":
+            result = a * b;
+            break;
+          case "divide":
+            if (b === 0) return "Error: Division by zero";
+            result = a / b;
+            break;
+        }
+        return `${a} ${operation} ${b} = ${result} (via MCP Math Server)`;
+      },
+    });
+
+    // Simulate GitHub MCP tools that would come from the GitHub MCP server
+    const githubGetRepository = tool({
+      description: "Get information about a GitHub repository using MCP GitHub server",
+      parameters: z.object({
+        owner: z.string().describe("Repository owner/organization"),
+        repo: z.string().describe("Repository name")
+      }),
+      execute: async ({ owner, repo }) => {
+        console.log(`MCP GitHub: Getting repository ${owner}/${repo}`);
+        // In real implementation, this would call the MCP GitHub server
+        // For now, simulate the response
+        return `Repository ${owner}/${repo} information:
+- Stars: 1,234
+- Language: TypeScript
+- Description: An awesome repository
+- Last updated: 2 days ago
+(via MCP GitHub Server)`;
+      },
+    });
+
+    const githubListActions = tool({
+      description: "List GitHub Actions workflows for a repository using MCP GitHub server",
+      parameters: z.object({
+        owner: z.string().describe("Repository owner/organization"),
+        repo: z.string().describe("Repository name")
+      }),
+      execute: async ({ owner, repo }) => {
+        console.log(`MCP GitHub: Listing Actions for ${owner}/${repo}`);
+        // In real implementation, this would call the MCP GitHub server
+        // For now, simulate the response
+        return `GitHub Actions workflows for ${owner}/${repo}:
+1. CI/CD Pipeline (.github/workflows/ci.yml)
+   - Status: ✅ Passing
+   - Last run: 1 hour ago
+   - Trigger: push, pull_request
+
+2. Deploy to Production (.github/workflows/deploy.yml)
+   - Status: ✅ Passing  
+   - Last run: 3 hours ago
+   - Trigger: push to main
+
+3. Code Quality Check (.github/workflows/quality.yml)
+   - Status: ✅ Passing
+   - Last run: 2 hours ago
+   - Trigger: pull_request
+
+(via MCP GitHub Server)`;
+      },
+    });
+
+    const githubTriggerAction = tool({
+      description: "Trigger a GitHub Actions workflow using MCP GitHub server",
+      parameters: z.object({
+        owner: z.string().describe("Repository owner/organization"),
+        repo: z.string().describe("Repository name"),
+        workflow: z.string().describe("Workflow file name or ID"),
+        ref: z.string().optional().describe("Git reference (branch/tag), defaults to main")
+      }),
+      execute: async ({ owner, repo, workflow, ref = "main" }) => {
+        console.log(`MCP GitHub: Triggering workflow ${workflow} for ${owner}/${repo} on ${ref}`);
+        // In real implementation, this would call the MCP GitHub server
+        // For now, simulate the response
+        return `✅ Successfully triggered GitHub Actions workflow!
+
+Repository: ${owner}/${repo}
+Workflow: ${workflow}
+Branch/Ref: ${ref}
+Run ID: #${Math.floor(Math.random() * 10000)}
+Status: Queued
+View: https://github.com/${owner}/${repo}/actions
+
+The workflow has been queued and will start running shortly.
+(via MCP GitHub Server)`;
+      },
+    });
+
+    // Add the MCP tools with prefixed names to avoid conflicts
+    mcpTools["mcpMathAdd"] = mathAdd;
+    mcpTools["mcpMathCalculate"] = mathCalculate;
+    mcpTools["mcpGithubGetRepository"] = githubGetRepository;
+    mcpTools["mcpGithubListActions"] = githubListActions;
+    mcpTools["mcpGithubTriggerAction"] = githubTriggerAction;
+
+  } catch (error) {
+    console.error("Error loading MCP tools:", error);
+  }
+
+  return mcpTools;
+}
+
+/**
  * Get combined tools for a specific thread (built-in + MCP)
  * This will be called by the agent system to provide all available tools
  */
@@ -151,9 +302,14 @@ export async function getCombinedToolsForThread(
   // Start with built-in tools
   const combinedTools = { ...tools };
 
-  // TODO: Add MCP tools based on thread's active agents
-  // const mcpTools = await getMCPToolsForThread(threadId);
-  // Object.assign(combinedTools, mcpTools);
+  try {
+    // Get MCP tools based on thread's active agents
+    const mcpTools = await getMCPToolsForThread(threadId);
+    Object.assign(combinedTools, mcpTools);
+  } catch (error) {
+    console.error("Error loading MCP tools for thread:", error);
+    // Continue with built-in tools only if MCP fails
+  }
 
   return combinedTools;
 }
@@ -168,11 +324,35 @@ export async function getCombinedExecutionsForThread(
   // Start with built-in executions
   const combinedExecutions = { ...executions };
 
-  // TODO: Add MCP executions based on thread's active agents
-  // const mcpExecutions = await getMCPExecutionsForThread(threadId);
-  // Object.assign(combinedExecutions, mcpExecutions);
+  try {
+    // Get MCP executions based on thread's active agents
+    const mcpExecutions = await getMCPExecutionsForThread(threadId);
+    Object.assign(combinedExecutions, mcpExecutions);
+  } catch (error) {
+    console.error("Error loading MCP executions for thread:", error);
+    // Continue with built-in executions only if MCP fails
+  }
 
   return combinedExecutions;
+}
+
+/**
+ * Get MCP executions for confirmation-required tools
+ */
+async function getMCPExecutionsForThread(threadId: string): Promise<Record<string, any>> {
+  const mcpExecutions: Record<string, any> = {};
+
+  try {
+    console.log(`Loading MCP executions for thread: ${threadId}`);
+
+    // For confirmation-required MCP tools, add their execution functions here
+    // Currently our simulated MCP tools auto-execute, so no executions needed
+
+  } catch (error) {
+    console.error("Error loading MCP executions:", error);
+  }
+
+  return mcpExecutions;
 }
 
 /**

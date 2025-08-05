@@ -20,6 +20,14 @@ export interface MCPGroup {
     description?: string;
     color: string;
     serverIds: string[];
+    servers?: {
+        id: string;
+        name: string;
+        url: string;
+        transport: "websocket" | "sse";
+        status: "connected" | "disconnected" | "error" | "authenticating" | "pending_auth";
+        isEnabled: boolean;
+    }[];
     userId: string;
     createdAt: Date;
 }

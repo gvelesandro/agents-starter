@@ -20,7 +20,7 @@ import {
 } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { processToolCalls } from "./utils";
-import { tools, executions } from "./tools";
+import { getCombinedToolsForThread, getCombinedExecutionsForThread } from "./tools";
 // MCP Agent API functions
 import * as agentAPI from "./api/agents";
 // import { env } from "cloudflare:workers";
@@ -218,9 +218,16 @@ export class Chat extends AIChatAgent<Env> {
     //   "https://path-to-mcp-server/sse"
     // );
 
-    // Collect all tools, including MCP tools
+    // Get thread ID from agent name (format: userId:threadId)
+    const toolsThreadId = this.name ? this.name.split(':')[1] || 'default' : 'default';
+    console.log(`Loading tools for thread: ${toolsThreadId}`);
+
+    // Collect all tools, including thread-specific MCP tools
+    const combinedTools = await getCombinedToolsForThread(toolsThreadId);
+    const combinedExecs = await getCombinedExecutionsForThread(toolsThreadId);
+
     const allTools = {
-      ...tools,
+      ...combinedTools,
       ...this.mcp.unstable_getAITools(),
     };
 
@@ -233,7 +240,7 @@ export class Chat extends AIChatAgent<Env> {
           messages: this.messages,
           dataStream,
           tools: allTools,
-          executions,
+          executions: combinedExecs,
         });
 
         // Stream the AI response using GPT-4
@@ -1127,6 +1134,61 @@ export default {
       return new Response(JSON.stringify({ error: "API endpoint not found" }), {
         status: 404,
         headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Handle root path - serve the main application
+    if (url.pathname === "/") {
+      const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="AI-powered chat agent built with Cloudflare Agents"
+    />
+    <meta name="theme-color" content="#000000" />
+
+    <title>AI Chat Agent</title>
+
+    <script>
+      document.documentElement.classList.toggle(
+        "dark",
+        localStorage.theme === "dark" ||
+          (!("theme" in localStorage) &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches)
+      );
+    </script>
+
+    <!-- Favicon support -->
+    <link rel="icon" href="/favicon.ico" />
+
+    <!-- Preload fonts if any -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <!-- Prevent flash of unstyled content -->
+    <style>
+      html {
+        background: var(--background);
+      }
+      @media (prefers-color-scheme: dark) {
+        html {
+          background: var(--background);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="app"></div>
+    <script type="module" src="/src/client.tsx"></script>
+  </body>
+</html>`;
+
+      return new Response(html, {
+        headers: { "Content-Type": "text/html" },
       });
     }
 

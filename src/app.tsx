@@ -702,8 +702,8 @@ const ChatInterface: React.FC<{
                             <div key={i}>
                               <Card
                                 className={`p-3 rounded-md bg-neutral-100 dark:bg-neutral-900 ${isUser
-                                    ? "rounded-br-none"
-                                    : "rounded-bl-none border-assistant-border"
+                                  ? "rounded-br-none"
+                                  : "rounded-bl-none border-assistant-border"
                                   } ${part.text.startsWith("scheduled message")
                                     ? "border-accent/50"
                                     : ""
@@ -917,7 +917,9 @@ export default function Chat() {
 
   const loadAvailableAgents = async () => {
     try {
-      const response = await fetch("/api/agents");
+      const response = await fetch("/api/agents", {
+        credentials: 'include'
+      });
       if (response.ok) {
         const data = await response.json() as any;
         const agents = data.agents || [];
@@ -930,11 +932,21 @@ export default function Chat() {
 
   const loadCurrentThreadAgents = async () => {
     try {
-      const response = await fetch(`/api/threads/${currentThreadId}/agents`);
+      console.log(`[FRONTEND] Loading thread agents for threadId: ${currentThreadId}`);
+      const response = await fetch(`/api/threads/${currentThreadId}/agents`, {
+        credentials: 'include'
+      });
+      console.log(`[FRONTEND] Thread agents response status: ${response.status}`);
       if (response.ok) {
         const data = await response.json() as any;
+        console.log(`[FRONTEND] Thread agents response data:`, data);
         const agents = data.agents || [];
+        console.log(`[FRONTEND] Setting current agents:`, agents);
         setCurrentAgents(Array.isArray(agents) ? agents : []);
+      } else {
+        console.error(`[FRONTEND] Thread agents response not ok:`, response.status, response.statusText);
+        const errorText = await response.text();
+        console.error(`[FRONTEND] Thread agents error response:`, errorText);
       }
     } catch (error) {
       console.error("Failed to load thread agents:", error);
@@ -943,11 +955,21 @@ export default function Chat() {
 
   const loadMcpGroups = async () => {
     try {
-      const response = await fetch("/api/mcp-groups");
+      console.log("Loading MCP groups from /api/mcp-groups...");
+      const response = await fetch("/api/mcp-groups", {
+        credentials: 'include'
+      });
+      console.log("MCP groups response status:", response.status);
       if (response.ok) {
         const data = await response.json() as any;
+        console.log("MCP groups raw data:", data);
         const groups = data.groups || [];
+        console.log("MCP groups processed:", groups);
         setMcpGroups(Array.isArray(groups) ? groups : []);
+      } else {
+        console.error("MCP groups response not ok:", response.status, response.statusText);
+        const errorText = await response.text();
+        console.error("MCP groups error response:", errorText);
       }
     } catch (error) {
       console.error("Failed to load MCP groups:", error);
@@ -957,15 +979,15 @@ export default function Chat() {
   const handleAgentChange = async (agents: any[]) => {
     console.log("Agent change requested:", agents);
     console.log("Current agents:", currentAgents);
-    
+
     try {
       // Find agents that were added (in new list but not in current)
-      const addedAgents = agents.filter(agent => 
+      const addedAgents = agents.filter(agent =>
         !currentAgents.some(current => current.id === agent.id)
       );
-      
+
       // Find agents that were removed (in current but not in new list)
-      const removedAgents = currentAgents.filter(current => 
+      const removedAgents = currentAgents.filter(current =>
         !agents.some(agent => agent.id === current.id)
       );
 
@@ -977,7 +999,8 @@ export default function Chat() {
         const response = await fetch(`/api/threads/${currentThreadId}/agents`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
+          credentials: 'include',
+          body: JSON.stringify({
             agentId: agent.id,
             role: "primary",
             reason: "Added via agent selector"
@@ -993,6 +1016,7 @@ export default function Chat() {
       for (const agent of removedAgents) {
         const response = await fetch(`/api/threads/${currentThreadId}/agents/${agent.id}`, {
           method: "DELETE",
+          credentials: 'include'
         });
         if (!response.ok) {
           console.error("Failed to remove agent:", response.status);
@@ -1013,6 +1037,7 @@ export default function Chat() {
       const response = await fetch("/api/agents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
         body: JSON.stringify(agentData),
       });
       if (response.ok) {
@@ -1028,6 +1053,7 @@ export default function Chat() {
       const response = await fetch(`/api/agents/${agentId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
         body: JSON.stringify(updates),
       });
       if (response.ok) {
@@ -1043,6 +1069,7 @@ export default function Chat() {
     try {
       const response = await fetch(`/api/agents/${agentId}`, {
         method: "DELETE",
+        credentials: 'include'
       });
       if (response.ok) {
         loadAvailableAgents();

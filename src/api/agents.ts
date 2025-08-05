@@ -322,10 +322,13 @@ export async function getThreadAgents(
         const userId = getUserId();
         const db = env.DB;
 
+        console.log(`[API] Loading thread agents for threadId: ${threadId}, userId: ${userId}`);
+
         const threadAgents = await db
             .prepare(
                 `
-      SELECT ta.*, a.name as agent_name, a.color
+      SELECT DISTINCT ta.agent_id, ta.role, ta.added_at, ta.added_reason, 
+             a.name as agent_name, a.color
       FROM thread_agents ta
       JOIN agents a ON ta.agent_id = a.id
       WHERE ta.thread_id = ? AND ta.user_id = ? AND ta.is_active = TRUE
@@ -334,6 +337,8 @@ export async function getThreadAgents(
             )
             .bind(threadId, userId)
             .all();
+
+        console.log(`[API] Thread agents query results:`, threadAgents.results);
 
         const activeAgents = threadAgents.results.map((ta: any) => ({
             agentId: ta.agent_id,
@@ -344,7 +349,9 @@ export async function getThreadAgents(
             toolGroups: [], // TODO: Populate with actual tool groups
         }));
 
-        return new Response(JSON.stringify({ activeAgents }), {
+        console.log(`[API] Processed active agents:`, activeAgents);
+
+        return new Response(JSON.stringify({ agents: activeAgents }), {
             headers: { "Content-Type": "application/json" },
         });
     } catch (error) {
@@ -490,7 +497,7 @@ export async function getMCPGroups(env: Env): Promise<Response> {
                 const servers = await db
                     .prepare(
                         `
-          SELECT id FROM mcp_servers 
+          SELECT id, name, url, transport, status, is_enabled FROM mcp_servers 
           WHERE group_id = ? AND user_id = ?
         `
                     )
@@ -500,6 +507,14 @@ export async function getMCPGroups(env: Env): Promise<Response> {
                 return {
                     ...group,
                     serverIds: servers.results.map((s: any) => s.id),
+                    servers: servers.results.map((s: any) => ({
+                        id: s.id,
+                        name: s.name,
+                        url: s.url,
+                        transport: s.transport,
+                        status: s.status,
+                        isEnabled: s.is_enabled,
+                    })),
                     createdAt: new Date(group.created_at),
                 };
             })

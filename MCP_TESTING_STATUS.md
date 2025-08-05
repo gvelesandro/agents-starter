@@ -79,11 +79,21 @@
 - **Session Management**: Cookies and session handling working correctly
 
 ### 🔍 Current Testing Phase
-**Agent Assignment Functionality**:
+**MCP Server Visibility Enhancement - COMPLETE**:
 - User can see and click on available agents ✅
-- Console debug logs should show API calls and responses
-- Agent should move from "Available" to "Active" section
-- Database should record thread-agent associations
+- Console debug logs should show API calls and responses ✅
+- Agent should move from "Available" to "Active" section ✅
+- Database should record thread-agent associations ✅
+- **NEW**: MCP groups now show detailed server information ✅
+- **NEW**: Expandable server list with status indicators ✅
+- **NEW**: Server details include name, transport type, and enabled status ✅
+
+### 🚀 Latest Features Added
+**Enhanced MCP Server Management**:
+- **Server Detail View**: Click the arrow next to any MCP group to expand and see individual servers
+- **Status Indicators**: Color-coded dots show server connection status (green=connected, gray=disconnected, red=error)
+- **Server Information**: Each server shows name, transport type (websocket/sse), and enabled/disabled status
+- **Real-time Data**: Server information is fetched directly from the database with current status
 
 ### Debugging Steps
 1. **Open Browser Console** (F12 → Console tab)
@@ -131,6 +141,43 @@ The MCP Agent System is now complete with full user interface integration! All c
 3. **Agent Creation Form**: Define agent persona, description, and MCP tool groups
 4. **Thread Assignment**: Each conversation can have its own specialized AI agents
 
+## 🎯 PHASE 3: Thread Agent Persistence - IN PROGRESS
+
+### 🔧 Issues Identified & Fixed
+**Thread Agent Loading Problem - RESOLVED**:
+- **Root Cause**: API response format mismatch - backend returned `{activeAgents}` but frontend expected `{agents}`
+- **Fix Applied**: Updated `getThreadAgents` API to return `{agents}` format
+- **Authentication Issue**: API calls missing `credentials: 'include'` causing 302 redirects to login
+- **Fix Applied**: Added `credentials: 'include'` to all fetch calls for proper session handling
+- **Database Deduplication**: Multiple duplicate thread-agent associations causing confusion
+- **Fix Applied**: Added `DISTINCT` clause to prevent duplicate agent assignments
+
+### 🚀 Enhanced Features - COMPLETE
+**GitHub MCP Tools Integration**:
+- **Repository Information**: Get repository stats, language, and description via MCP GitHub server
+- **GitHub Actions Workflows**: List all workflows with status indicators and last run times
+- **Workflow Trigger**: Manually trigger GitHub Actions workflows with branch specification
+- **Simulated Responses**: Full GitHub-like responses for testing MCP integration
+
+### 🧪 Current Testing Phase
+**Thread Agent Persistence Debugging**:
+- Database contains valid thread-agent associations ✅
+- API endpoint properly configured ✅ 
+- Response format corrected ✅
+- Authentication credentials included ✅
+- **PENDING**: Session management during server reload verification
+
+### 🔍 Available Test Prompts
+**Math Operations** (Working ✅):
+- "Can you add 42 and 28 for me?"
+- "Multiply 15 by 8 using the MCP calculator"
+
+**GitHub Actions** (New ✅):
+- "Get information about the gvelesandro/agents-starter repository"
+- "Show me the GitHub Actions workflows for gvelesandro/agents-starter"
+- "Trigger the CI/CD pipeline workflow for gvelesandro/agents-starter"
+- "Please trigger the deploy workflow for gvelesandro/agents-starter on the mcp-support branch"
+
 ---
-*Generated: August 5, 2025*
-*Complete MCP Agent System with UI integration - Ready for production use!*
+*Updated: August 5, 2025*
+*MCP Agent System: GitHub Actions integration added, thread persistence debugging in progress*
