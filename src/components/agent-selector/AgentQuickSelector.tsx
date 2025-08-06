@@ -8,6 +8,7 @@ interface AgentQuickSelectorProps {
     availableAgents: Agent[];
     onAgentChange: (agents: Agent[]) => void;
     onManageAgents: () => void;
+    onManageMCPServers?: () => void;
     className?: string;
 }
 
@@ -17,6 +18,7 @@ export const AgentQuickSelector: React.FC<AgentQuickSelectorProps> = ({
     availableAgents,
     onAgentChange,
     onManageAgents,
+    onManageMCPServers,
     className = "",
 }) => {
     const [isOpen, setIsOpen] = useState(false);
@@ -177,6 +179,18 @@ export const AgentQuickSelector: React.FC<AgentQuickSelectorProps> = ({
                                 <Plus className="h-4 w-4" />
                                 <span>Manage Agents</span>
                             </button>
+                            {onManageMCPServers && (
+                                <button
+                                    onClick={() => {
+                                        setIsOpen(false);
+                                        onManageMCPServers();
+                                    }}
+                                    className="w-full flex items-center space-x-3 px-3 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 hover:text-green-700 dark:hover:text-green-300"
+                                >
+                                    <Plus className="h-4 w-4" />
+                                    <span>MCP Server Library</span>
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>

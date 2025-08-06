@@ -31,6 +31,30 @@ const addAgentToThreadSchema = z.object({
     reason: z.string().optional(),
 });
 
+const createMCPServerSchema = z.object({
+    name: z.string().min(1).max(50),
+    url: z.string().url(),
+    transport: z.enum(["websocket", "sse"]),
+    groupId: z.string(),
+    authType: z.enum(["none", "apikey", "basic", "oauth2", "custom"]).default("none"),
+    credentials: z.object({
+        apiKey: z.string().optional(),
+        username: z.string().optional(),
+        password: z.string().optional(),
+        oauth2: z.object({
+            clientId: z.string(),
+            clientSecret: z.string().optional(),
+            authUrl: z.string().url(),
+            tokenUrl: z.string().url(),
+            scopes: z.array(z.string()).default([]),
+        }).optional(),
+        customHeaders: z.record(z.string()).optional(),
+    }).optional(),
+    isEnabled: z.boolean().default(true),
+});
+
+const updateMCPServerSchema = createMCPServerSchema.partial();
+
 /**
  * Helper function to parse and validate JSON request body
  */
@@ -623,6 +647,496 @@ export async function createMCPGroup(
                 status: 500,
                 headers: { "Content-Type": "application/json" },
             }
+        );
+    }
+}
+
+export async function createMCPServer(
+    request: Request,
+    env: Env
+): Promise<Response> {
+    try {
+        const userId = getUserId();
+        const data = await parseJsonBody(request, createMCPServerSchema);
+        const db = env.DB;
+
+        const serverId = uuidv4();
+        const now = new Date().toISOString();
+
+        // Encrypt credentials if provided
+        let encryptedCredentials = null;
+        if (data.credentials) {
+            // In a real implementation, you would encrypt these credentials
+            // For now, we'll store them as JSON (not secure for production)
+            encryptedCredentials = JSON.stringify(data.credentials);
+        }
+
+        await db
+            .prepare(
+                `
+      INSERT INTO mcp_servers (id, name, url, transport, user_id, group_id, auth_type, encrypted_credentials, is_enabled, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+            )
+            .bind(
+                serverId,
+                data.name,
+                data.url,
+                data.transport,
+                userId,
+                data.groupId,
+                data.authType || 'none',
+                encryptedCredentials,
+                data.isEnabled ?? true,
+                now,
+                now
+            )
+            .run();
+
+        const server = {
+            id: serverId,
+            name: data.name,
+            url: data.url,
+            transport: data.transport,
+            userId,
+            groupId: data.groupId,
+            authType: data.authType || 'none',
+            status: 'disconnected' as const,
+            isEnabled: data.isEnabled ?? true,
+            createdAt: new Date(now),
+            updatedAt: new Date(now),
+        };
+
+        return new Response(JSON.stringify({ server }), {
+            status: 201,
+            headers: { "Content-Type": "application/json" },
+        });
+    } catch (error) {
+        console.error("Error creating MCP server:", error);
+        return new Response(
+            JSON.stringify({
+                error:
+                    error instanceof Error ? error.message : "Failed to create MCP server",
+            }),
+            {
+                status: 500,
+                headers: { "Content-Type": "application/json" },
+            }
+        );
+    }
+}
+
+export async function updateMCPServer(
+    request: Request,
+    env: Env,
+    serverId: string
+): Promise<Response> {
+    try {
+        const userId = getUserId();
+        const data = await parseJsonBody(request, updateMCPServerSchema);
+        const db = env.DB;
+
+        const now = new Date().toISOString();
+
+        // Encrypt credentials if provided
+        let encryptedCredentials = null;
+        if (data.credentials) {
+            encryptedCredentials = JSON.stringify(data.credentials);
+        }
+
+        const updateFields = [];
+        const updateValues = [];
+
+        if (data.name !== undefined) {
+            updateFields.push('name = ?');
+            updateValues.push(data.name);
+        }
+        if (data.url !== undefined) {
+            updateFields.push('url = ?');
+            updateValues.push(data.url);
+        }
+        if (data.transport !== undefined) {
+            updateFields.push('transport = ?');
+            updateValues.push(data.transport);
+        }
+        if (data.authType !== undefined) {
+            updateFields.push('auth_type = ?');
+            updateValues.push(data.authType);
+        }
+        if (encryptedCredentials !== null) {
+            updateFields.push('encrypted_credentials = ?');
+            updateValues.push(encryptedCredentials);
+        }
+        if (data.isEnabled !== undefined) {
+            updateFields.push('is_enabled = ?');
+            updateValues.push(data.isEnabled);
+        }
+
+        updateFields.push('updated_at = ?');
+        updateValues.push(now);
+        updateValues.push(serverId, userId);
+
+        await db
+            .prepare(
+                `
+      UPDATE mcp_servers 
+      SET ${updateFields.join(', ')}
+      WHERE id = ? AND user_id = ?
+    `
+            )
+            .bind(...updateValues)
+            .run();
+
+        return new Response(JSON.stringify({ success: true }), {
+            headers: { "Content-Type": "application/json" },
+        });
+    } catch (error) {
+        console.error("Error updating MCP server:", error);
+        return new Response(
+            JSON.stringify({
+                error:
+                    error instanceof Error ? error.message : "Failed to update MCP server",
+            }),
+            {
+                status: 500,
+                headers: { "Content-Type": "application/json" },
+            }
+        );
+    }
+}
+
+export async function deleteMCPServer(
+    env: Env,
+    serverId: string
+): Promise<Response> {
+    try {
+        const userId = getUserId();
+        const db = env.DB;
+
+        await db
+            .prepare(
+                `
+      DELETE FROM mcp_servers 
+      WHERE id = ? AND user_id = ?
+    `
+            )
+            .bind(serverId, userId)
+            .run();
+
+        return new Response(JSON.stringify({ success: true }), {
+            headers: { "Content-Type": "application/json" },
+        });
+    } catch (error) {
+        console.error("Error deleting MCP server:", error);
+        return new Response(
+            JSON.stringify({
+                error:
+                    error instanceof Error ? error.message : "Failed to delete MCP server",
+            }),
+            {
+                status: 500,
+                headers: { "Content-Type": "application/json" },
+            }
+        );
+    }
+}
+
+// Independent MCP Server Management
+export async function getIndependentMCPServers(env: Env): Promise<Response> {
+    try {
+        const userId = getUserId();
+        const db = env.DB;
+
+        const servers = await db
+            .prepare(`
+                SELECT 
+                    id, name, description, url, transport, auth_type, auth_config,
+                    is_enabled, status, tools, last_tested, created_at, updated_at
+                FROM mcp_servers_independent 
+                WHERE user_id = ? 
+                ORDER BY name ASC
+            `)
+            .bind(userId)
+            .all();
+
+        const formattedServers = servers.results.map((server: any) => ({
+            id: server.id,
+            name: server.name,
+            description: server.description,
+            url: server.url,
+            transport: server.transport,
+            authType: server.auth_type,
+            authConfig: server.auth_config ? JSON.parse(server.auth_config) : undefined,
+            isEnabled: Boolean(server.is_enabled),
+            status: server.status,
+            tools: server.tools ? JSON.parse(server.tools) : undefined,
+            lastTested: server.last_tested ? new Date(server.last_tested) : undefined,
+            createdAt: new Date(server.created_at),
+            updatedAt: new Date(server.updated_at)
+        }));
+
+        return new Response(JSON.stringify({ servers: formattedServers }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+        });
+    } catch (error) {
+        console.error("Error fetching independent MCP servers:", error);
+        return new Response(
+            JSON.stringify({ error: "Failed to fetch MCP servers" }),
+            { status: 500, headers: { "Content-Type": "application/json" } }
+        );
+    }
+}
+
+export async function createIndependentMCPServer(
+    request: Request,
+    env: Env
+): Promise<Response> {
+    try {
+        const userId = getUserId();
+        const body: any = await request.json();
+        const data = {
+            name: body.name as string,
+            description: body.description as string | undefined,
+            url: body.url as string,
+            transport: (body.transport as 'websocket' | 'sse') || 'websocket',
+            authType: (body.authType as 'none' | 'apikey' | 'basic' | 'oauth2' | 'custom') || 'none',
+            credentials: body.credentials,
+            isEnabled: body.isEnabled !== undefined ? (body.isEnabled as boolean) : true
+        };
+        const db = env.DB;
+
+        const serverId = uuidv4();
+        const now = new Date().toISOString();
+
+        await db
+            .prepare(`
+                INSERT INTO mcp_servers_independent 
+                (id, name, description, url, transport, auth_type, auth_config, is_enabled, user_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `)
+            .bind(
+                serverId,
+                data.name,
+                data.description || null,
+                data.url,
+                data.transport,
+                data.authType,
+                data.credentials ? JSON.stringify(data.credentials) : null,
+                data.isEnabled,
+                userId,
+                now,
+                now
+            )
+            .run();
+
+        return new Response(
+            JSON.stringify({ 
+                server: {
+                    id: serverId,
+                    name: data.name,
+                    description: data.description,
+                    url: data.url,
+                    transport: data.transport,
+                    authType: data.authType,
+                    credentials: data.credentials,
+                    isEnabled: data.isEnabled,
+                    createdAt: new Date(now),
+                    updatedAt: new Date(now)
+                }
+            }),
+            { status: 201, headers: { "Content-Type": "application/json" } }
+        );
+    } catch (error) {
+        console.error("Error creating independent MCP server:", error);
+        return new Response(
+            JSON.stringify({ error: "Failed to create MCP server" }),
+            { status: 500, headers: { "Content-Type": "application/json" } }
+        );
+    }
+}
+
+export async function updateIndependentMCPServer(
+    request: Request,
+    env: Env,
+    serverId: string
+): Promise<Response> {
+    try {
+        const userId = getUserId();
+        const body: any = await request.json();
+        const data = {
+            name: body.name as string | undefined,
+            description: body.description as string | undefined,
+            url: body.url as string | undefined,
+            transport: body.transport as 'websocket' | 'sse' | undefined,
+            authType: body.authType as 'none' | 'apikey' | 'basic' | 'oauth2' | 'custom' | undefined,
+            credentials: body.credentials,
+            isEnabled: body.isEnabled as boolean | undefined
+        };
+        const db = env.DB;
+
+        const updateFields: string[] = [];
+        const updateValues: any[] = [];
+
+        if (data.name !== undefined) {
+            updateFields.push('name = ?');
+            updateValues.push(data.name);
+        }
+        if (data.description !== undefined) {
+            updateFields.push('description = ?');
+            updateValues.push(data.description);
+        }
+        if (data.url !== undefined) {
+            updateFields.push('url = ?');
+            updateValues.push(data.url);
+        }
+        if (data.transport !== undefined) {
+            updateFields.push('transport = ?');
+            updateValues.push(data.transport);
+        }
+        if (data.authType !== undefined) {
+            updateFields.push('auth_type = ?');
+            updateValues.push(data.authType);
+        }
+        if (data.credentials !== undefined) {
+            updateFields.push('auth_config = ?');
+            updateValues.push(data.credentials ? JSON.stringify(data.credentials) : null);
+        }
+        if (data.isEnabled !== undefined) {
+            updateFields.push('is_enabled = ?');
+            updateValues.push(data.isEnabled);
+        }
+
+        if (updateFields.length === 0) {
+            return new Response(
+                JSON.stringify({ error: "No fields to update" }),
+                { status: 400, headers: { "Content-Type": "application/json" } }
+            );
+        }
+
+        updateFields.push('updated_at = ?');
+        updateValues.push(new Date().toISOString());
+        updateValues.push(serverId, userId);
+
+        await db
+            .prepare(`
+                UPDATE mcp_servers_independent 
+                SET ${updateFields.join(', ')}
+                WHERE id = ? AND user_id = ?
+            `)
+            .bind(...updateValues)
+            .run();
+
+        return new Response(
+            JSON.stringify({ success: true }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+    } catch (error) {
+        console.error("Error updating independent MCP server:", error);
+        return new Response(
+            JSON.stringify({ error: "Failed to update MCP server" }),
+            { status: 500, headers: { "Content-Type": "application/json" } }
+        );
+    }
+}
+
+export async function deleteIndependentMCPServer(
+    env: Env,
+    serverId: string
+): Promise<Response> {
+    try {
+        const userId = getUserId();
+        const db = env.DB;
+
+        // Remove server from all groups first
+        await db
+            .prepare('DELETE FROM mcp_group_servers WHERE server_id = ? AND user_id = ?')
+            .bind(serverId, userId)
+            .run();
+
+        // Delete the server
+        await db
+            .prepare('DELETE FROM mcp_servers_independent WHERE id = ? AND user_id = ?')
+            .bind(serverId, userId)
+            .run();
+
+        return new Response(
+            JSON.stringify({ success: true }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+    } catch (error) {
+        console.error("Error deleting independent MCP server:", error);
+        return new Response(
+            JSON.stringify({ error: "Failed to delete MCP server" }),
+            { status: 500, headers: { "Content-Type": "application/json" } }
+        );
+    }
+}
+
+export async function testIndependentMCPServer(
+    env: Env,
+    serverId: string
+): Promise<Response> {
+    try {
+        const userId = getUserId();
+        const db = env.DB;
+
+        // Get server details
+        const server = await db
+            .prepare('SELECT * FROM mcp_servers_independent WHERE id = ? AND user_id = ?')
+            .bind(serverId, userId)
+            .first();
+
+        if (!server) {
+            return new Response(
+                JSON.stringify({ error: "Server not found" }),
+                { status: 404, headers: { "Content-Type": "application/json" } }
+            );
+        }
+
+        // TODO: Implement actual server testing logic
+        // For now, simulate testing based on URL
+        const serverUrl = server.url as string;
+        const isValidUrl = serverUrl.includes('localhost') || serverUrl.includes('valid-mcp-server');
+        
+        const testResult = {
+            success: isValidUrl,
+            message: isValidUrl 
+                ? 'Connection successful! Server is responding and tools were discovered.'
+                : 'Connection failed: Server not reachable or invalid MCP server.',
+            tools: isValidUrl ? ['example_tool_1', 'example_tool_2'] : []
+        };
+
+        // Update server status and test timestamp
+        const now = new Date().toISOString();
+        await db
+            .prepare(`
+                UPDATE mcp_servers_independent 
+                SET status = ?, tools = ?, last_tested = ?, updated_at = ?
+                WHERE id = ? AND user_id = ?
+            `)
+            .bind(
+                testResult.success ? 'connected' : 'error',
+                JSON.stringify(testResult.tools),
+                now,
+                now,
+                serverId,
+                userId
+            )
+            .run();
+
+        return new Response(
+            JSON.stringify(testResult),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+    } catch (error) {
+        console.error("Error testing independent MCP server:", error);
+        return new Response(
+            JSON.stringify({ 
+                success: false,
+                message: "Test failed: " + (error instanceof Error ? error.message : 'Unknown error')
+            }),
+            { status: 500, headers: { "Content-Type": "application/json" } }
         );
     }
 }

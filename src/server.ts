@@ -1130,6 +1130,54 @@ export default {
         return agentAPI.createMCPGroup(request, env);
       }
 
+      // MCP server routes
+      if (url.pathname === "/api/mcp-servers" && request.method === "POST") {
+        return agentAPI.createMCPServer(request, env);
+      }
+      if (
+        url.pathname.match(/^\/api\/mcp-servers\/[^\/]+$/) &&
+        request.method === "PUT"
+      ) {
+        const serverId = url.pathname.split("/")[3];
+        return agentAPI.updateMCPServer(request, env, serverId);
+      }
+      if (
+        url.pathname.match(/^\/api\/mcp-servers\/[^\/]+$/) &&
+        request.method === "DELETE"
+      ) {
+        const serverId = url.pathname.split("/")[3];
+        return agentAPI.deleteMCPServer(env, serverId);
+      }
+
+      // Independent MCP server routes
+      if (url.pathname === "/api/mcp-servers-independent" && request.method === "GET") {
+        return agentAPI.getIndependentMCPServers(env);
+      }
+      if (url.pathname === "/api/mcp-servers-independent" && request.method === "POST") {
+        return agentAPI.createIndependentMCPServer(request, env);
+      }
+      if (
+        url.pathname.match(/^\/api\/mcp-servers-independent\/[^\/]+$/) &&
+        request.method === "PUT"
+      ) {
+        const serverId = url.pathname.split("/")[3];
+        return agentAPI.updateIndependentMCPServer(request, env, serverId);
+      }
+      if (
+        url.pathname.match(/^\/api\/mcp-servers-independent\/[^\/]+$/) &&
+        request.method === "DELETE"
+      ) {
+        const serverId = url.pathname.split("/")[3];
+        return agentAPI.deleteIndependentMCPServer(env, serverId);
+      }
+      if (
+        url.pathname.match(/^\/api\/mcp-servers-independent\/[^\/]+\/test$/) &&
+        request.method === "POST"
+      ) {
+        const serverId = url.pathname.split("/")[3];
+        return agentAPI.testIndependentMCPServer(env, serverId);
+      }
+
       // Return 404 for unhandled API routes
       return new Response(JSON.stringify({ error: "API endpoint not found" }), {
         status: 404,

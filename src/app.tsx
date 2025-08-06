@@ -36,6 +36,7 @@ import { useNotificationContext } from "@/providers/NotificationProvider";
 // MCP Agent imports
 import { AgentQuickSelector } from "@/components/agent-selector/AgentQuickSelector";
 import { AgentManagementPanel } from "@/components/agent-selector/AgentManagementPanel";
+import { MCPServerLibrary } from "@/components/mcp-library/MCPServerLibrary";
 
 // List of tools that require human confirmation
 const toolsRequiringConfirmation: (keyof typeof tools)[] = [
@@ -905,6 +906,8 @@ export default function Chat() {
   const [availableAgents, setAvailableAgents] = useState<any[]>([]);
   const [mcpGroups, setMcpGroups] = useState<any[]>([]);
   const [showAgentManagement, setShowAgentManagement] = useState(false);
+  const [showMCPServerLibrary, setShowMCPServerLibrary] = useState(false);
+  const [independentMCPServers, setIndependentMCPServers] = useState<any[]>([]);
 
   // Load available agents when user loads
   useEffect(() => {
@@ -912,6 +915,7 @@ export default function Chat() {
       loadAvailableAgents();
       loadCurrentThreadAgents();
       loadMcpGroups();
+      loadIndependentMCPServers();
     }
   }, [currentUser?.userId, currentThreadId]);
 
@@ -1077,6 +1081,148 @@ export default function Chat() {
       }
     } catch (error) {
       console.error("Failed to delete agent:", error);
+    }
+  };
+
+  // MCP Server Management Functions
+  const handleCreateMCPServer = async (groupId: string, config: {
+    name: string;
+    serverUri: string;
+    transport: 'websocket' | 'sse';
+    authType: 'none' | 'api_key' | 'basic';
+    authConfig?: any;
+    isEnabled: boolean;
+  }) => {
+    try {
+      const response = await fetch('/api/mcp-servers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ groupId, ...config })
+      });
+      if (response.ok) {
+        loadAvailableAgents(); // Refresh to get updated MCP group info
+      }
+    } catch (error) {
+      console.error("Failed to create MCP server:", error);
+    }
+  };
+
+  const handleUpdateMCPServer = async (serverId: string, config: {
+    name: string;
+    serverUri: string;
+    transport: 'websocket' | 'sse';
+    authType: 'none' | 'api_key' | 'basic';
+    authConfig?: any;
+    isEnabled: boolean;
+  }) => {
+    try {
+      const response = await fetch(`/api/mcp-servers/${serverId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(config)
+      });
+      if (response.ok) {
+        loadAvailableAgents(); // Refresh to get updated MCP group info
+      }
+    } catch (error) {
+      console.error("Failed to update MCP server:", error);
+    }
+  };
+
+  const handleDeleteMCPServer = async (serverId: string) => {
+    try {
+      const response = await fetch(`/api/mcp-servers/${serverId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (response.ok) {
+        loadAvailableAgents(); // Refresh to get updated MCP group info
+      }
+    } catch (error) {
+      console.error("Failed to delete MCP server:", error);
+    }
+  };
+
+  // Independent MCP Server Management Functions
+  const loadIndependentMCPServers = async () => {
+    try {
+      const response = await fetch('/api/mcp-servers-independent', {
+        credentials: 'include'
+      });
+      if (response.ok) {
+        const data: any = await response.json();
+        setIndependentMCPServers(data.servers || []);
+      }
+    } catch (error) {
+      console.error("Failed to load independent MCP servers:", error);
+    }
+  };
+
+  const handleCreateIndependentMCPServer = async (serverConfig: any) => {
+    try {
+      const response = await fetch('/api/mcp-servers-independent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(serverConfig)
+      });
+      if (response.ok) {
+        loadIndependentMCPServers();
+      }
+    } catch (error) {
+      console.error("Failed to create independent MCP server:", error);
+    }
+  };
+
+  const handleUpdateIndependentMCPServer = async (serverId: string, serverConfig: any) => {
+    try {
+      const response = await fetch(`/api/mcp-servers-independent/${serverId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(serverConfig)
+      });
+      if (response.ok) {
+        loadIndependentMCPServers();
+      }
+    } catch (error) {
+      console.error("Failed to update independent MCP server:", error);
+    }
+  };
+
+  const handleDeleteIndependentMCPServer = async (serverId: string) => {
+    try {
+      const response = await fetch(`/api/mcp-servers-independent/${serverId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (response.ok) {
+        loadIndependentMCPServers();
+        loadAvailableAgents(); // Also refresh agents in case server was used in groups
+      }
+    } catch (error) {
+      console.error("Failed to delete independent MCP server:", error);
+    }
+  };
+
+  const handleTestIndependentMCPServer = async (serverId: string): Promise<{ success: boolean; message: string; tools?: string[] }> => {
+    try {
+      const response = await fetch(`/api/mcp-servers-independent/${serverId}/test`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      if (response.ok) {
+        const result = await response.json() as { success: boolean; message: string; tools?: string[] };
+        // Refresh servers to get updated status
+        loadIndependentMCPServers();
+        return result;
+      }
+      return { success: false, message: 'Test request failed' };
+    } catch (error) {
+      console.error("Failed to test independent MCP server:", error);
+      return { success: false, message: 'Test failed: ' + error };
     }
   };
   // Sidebar should be open on desktop by default, closed on mobile
@@ -1273,6 +1419,7 @@ export default function Chat() {
                   availableAgents={availableAgents}
                   onAgentChange={handleAgentChange}
                   onManageAgents={() => setShowAgentManagement(true)}
+                  onManageMCPServers={() => setShowMCPServerLibrary(true)}
                 />
               )}
             </div>
@@ -1386,6 +1533,26 @@ export default function Chat() {
               onCreateAgent={handleCreateAgent}
               onUpdateAgent={handleUpdateAgent}
               onDeleteAgent={handleDeleteAgent}
+              onCreateMCPServer={handleCreateMCPServer}
+              onUpdateMCPServer={handleUpdateMCPServer}
+              onDeleteMCPServer={handleDeleteMCPServer}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* MCP Server Library Modal */}
+      {showMCPServerLibrary && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-neutral-900 rounded-lg w-full max-w-6xl max-h-[90vh] overflow-hidden">
+            <MCPServerLibrary
+              isOpen={showMCPServerLibrary}
+              onClose={() => setShowMCPServerLibrary(false)}
+              servers={independentMCPServers}
+              onCreateServer={handleCreateIndependentMCPServer}
+              onUpdateServer={handleUpdateIndependentMCPServer}
+              onDeleteServer={handleDeleteIndependentMCPServer}
+              onTestServer={handleTestIndependentMCPServer}
             />
           </div>
         </div>

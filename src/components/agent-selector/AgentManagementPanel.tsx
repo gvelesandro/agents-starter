@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, Gear, X, CaretDown, CaretRight } from '@phosphor-icons/react';
 import type { Agent, MCPGroup } from '../../types/mcp';
+import { MCPServerConfigModal } from '../mcp-config/MCPServerConfigModal';
 
 interface AgentManagementPanelProps {
     isOpen: boolean;
@@ -10,6 +11,9 @@ interface AgentManagementPanelProps {
     onCreateAgent: (agent: Omit<Agent, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'usageCount'>) => void;
     onUpdateAgent: (agentId: string, updates: Partial<Agent>) => void;
     onDeleteAgent: (agentId: string) => void;
+    onCreateMCPServer?: (groupId: string, server: any) => Promise<void>;
+    onUpdateMCPServer?: (serverId: string, updates: any) => Promise<void>;
+    onDeleteMCPServer?: (serverId: string) => Promise<void>;
 }
 
 const colors = [
@@ -28,11 +32,25 @@ export const AgentManagementPanel: React.FC<AgentManagementPanelProps> = ({
     mcpGroups,
     onCreateAgent,
     onUpdateAgent,
-    onDeleteAgent
+    onDeleteAgent,
+    onCreateMCPServer,
+    onUpdateMCPServer,
+    onDeleteMCPServer
 }) => {
     const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
     const [isCreating, setIsCreating] = useState(false);
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+    const [mcpServerModal, setMcpServerModal] = useState<{
+        isOpen: boolean;
+        mode: 'create' | 'edit';
+        groupId: string;
+        server?: any;
+    }>({
+        isOpen: false,
+        mode: 'create',
+        groupId: '',
+        server: undefined
+    });
     const [formData, setFormData] = useState({
         name: '',
         description: '',
@@ -53,6 +71,11 @@ export const AgentManagementPanel: React.FC<AgentManagementPanelProps> = ({
         setIsCreating(false);
     };
 
+    const startCreating = () => {
+        resetForm();
+        setIsCreating(true);
+    };
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
 
@@ -69,6 +92,85 @@ export const AgentManagementPanel: React.FC<AgentManagementPanelProps> = ({
         resetForm();
     };
 
+    const toggleGroupExpanded = (groupId: string) => {
+        setExpandedGroups(prev => {
+            const newExpanded = new Set(prev);
+            if (newExpanded.has(groupId)) {
+                newExpanded.delete(groupId);
+            } else {
+                newExpanded.add(groupId);
+            }
+            return newExpanded;
+        });
+    };
+
+    const handleMCPServerCreate = (groupId: string) => {
+        setMcpServerModal({
+            isOpen: true,
+            mode: 'create',
+            groupId,
+            server: undefined
+        });
+    };
+
+    const handleMCPServerEdit = (groupId: string, server: any) => {
+        setMcpServerModal({
+            isOpen: true,
+            mode: 'edit',
+            groupId,
+            server
+        });
+    };
+
+    const handleMCPServerSave = async (config: {
+        id?: string;
+        name: string;
+        url: string;
+        transport: 'websocket' | 'sse';
+        authType: 'none' | 'apikey' | 'basic' | 'oauth2' | 'custom';
+        credentials?: {
+            apiKey?: string;
+            username?: string;
+            password?: string;
+        };
+        isEnabled: boolean;
+        status?: 'connected' | 'disconnected' | 'error' | 'authenticating' | 'pending_auth';
+    }) => {
+        try {
+            // Convert the config to match our API structure
+            const apiConfig = {
+                name: config.name,
+                serverUri: config.url,
+                transport: config.transport,
+                authType: config.authType === 'apikey' ? 'api_key' as const : 
+                         config.authType === 'none' ? 'none' as const :
+                         config.authType === 'basic' ? 'basic' as const :
+                         'none' as const,
+                authConfig: config.credentials,
+                isEnabled: config.isEnabled
+            };
+
+            if (mcpServerModal.mode === 'create' && onCreateMCPServer) {
+                await onCreateMCPServer(mcpServerModal.groupId, apiConfig);
+            } else if (mcpServerModal.server && onUpdateMCPServer) {
+                await onUpdateMCPServer(mcpServerModal.server.id, apiConfig);
+            }
+            setMcpServerModal({ isOpen: false, mode: 'create', groupId: '', server: undefined });
+        } catch (error) {
+            console.error('Error saving MCP server:', error);
+        }
+    };
+
+    const handleMCPServerDelete = async (serverId: string) => {
+        try {
+            if (onDeleteMCPServer) {
+                await onDeleteMCPServer(serverId);
+            }
+        } catch (error) {
+            console.error('Error deleting MCP server:', error);
+        }
+    };
+
     const startEdit = (agent: Agent) => {
         setFormData({
             name: agent.name,
@@ -79,11 +181,6 @@ export const AgentManagementPanel: React.FC<AgentManagementPanelProps> = ({
         });
         setEditingAgent(agent);
         setIsCreating(true);
-    };
-
-    const getColorClasses = (colorValue: string) => {
-        const color = colors.find(c => c.value === colorValue) || colors[0];
-        return `${color.bg} ${color.text} ${color.border}`;
     };
 
     if (!isOpen) return null;
@@ -108,7 +205,7 @@ export const AgentManagementPanel: React.FC<AgentManagementPanelProps> = ({
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="text-lg font-medium text-gray-900 dark:text-neutral-100">Your Agents</h3>
                             <button
-                                onClick={() => setIsCreating(true)}
+                                onClick={startCreating}
                                 className="flex items-center space-x-2 px-3 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-800"
                             >
                                 <Plus className="h-4 w-4" />
@@ -281,15 +378,7 @@ export const AgentManagementPanel: React.FC<AgentManagementPanelProps> = ({
                                                         type="button"
                                                         onClick={(e) => {
                                                             e.preventDefault();
-                                                            setExpandedGroups(prev => {
-                                                                const newSet = new Set(prev);
-                                                                if (newSet.has(group.id)) {
-                                                                    newSet.delete(group.id);
-                                                                } else {
-                                                                    newSet.add(group.id);
-                                                                }
-                                                                return newSet;
-                                                            });
+                                                            toggleGroupExpanded(group.id);
                                                         }}
                                                         className="p-1 text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-300"
                                                     >
@@ -302,33 +391,62 @@ export const AgentManagementPanel: React.FC<AgentManagementPanelProps> = ({
                                                 </label>
 
                                                 {/* Expandable server list */}
-                                                {expandedGroups.has(group.id) && group.servers && group.servers.length > 0 && (
-                                                    <div className="mt-3 pl-8 space-y-2 border-l-2 border-gray-200 dark:border-neutral-600">
-                                                        {group.servers.map((server) => (
-                                                            <div key={server.id} className="flex items-center justify-between text-xs">
-                                                                <div className="flex items-center space-x-2">
-                                                                    <div className={`w-2 h-2 rounded-full ${server.status === 'connected' ? 'bg-green-500' :
-                                                                            server.status === 'disconnected' ? 'bg-gray-400' :
-                                                                                server.status === 'error' ? 'bg-red-500' :
-                                                                                    'bg-yellow-500'
-                                                                        }`} />
-                                                                    <span className="text-gray-700 dark:text-neutral-300 font-medium">
-                                                                        {server.name}
-                                                                    </span>
-                                                                </div>
-                                                                <div className="flex items-center space-x-2">
-                                                                    <span className="text-gray-500 dark:text-neutral-400">
-                                                                        {server.transport}
-                                                                    </span>
-                                                                    <span className={`px-2 py-1 rounded text-xs ${server.isEnabled
-                                                                            ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200'
-                                                                            : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
-                                                                        }`}>
-                                                                        {server.isEnabled ? 'Enabled' : 'Disabled'}
-                                                                    </span>
-                                                                </div>
+                                                {expandedGroups.has(group.id) && (
+                                                    <div className="mt-3 pl-8 space-y-3 border-l-2 border-gray-200 dark:border-neutral-600">
+                                                        {/* Add Server Button */}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleMCPServerCreate(group.id)}
+                                                            className="flex items-center space-x-2 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
+                                                        >
+                                                            <Plus size={14} />
+                                                            <span>Add Server</span>
+                                                        </button>
+
+                                                        {/* Server List */}
+                                                        {group.servers && group.servers.length > 0 && (
+                                                            <div className="space-y-2">
+                                                                {group.servers.map((server) => (
+                                                                    <div key={server.id} className="flex items-center justify-between text-xs bg-gray-50 dark:bg-neutral-700 p-2 rounded">
+                                                                        <div className="flex items-center space-x-2 flex-1">
+                                                                            <div className={`w-2 h-2 rounded-full ${server.status === 'connected' ? 'bg-green-500' :
+                                                                                    server.status === 'disconnected' ? 'bg-gray-400' :
+                                                                                        server.status === 'error' ? 'bg-red-500' :
+                                                                                            'bg-yellow-500'
+                                                                                }`} />
+                                                                            <span className="text-gray-700 dark:text-neutral-300 font-medium">
+                                                                                {server.name}
+                                                                            </span>
+                                                                            <span className="text-gray-500 dark:text-neutral-400">
+                                                                                {server.transport}
+                                                                            </span>
+                                                                        </div>
+                                                                        <div className="flex items-center space-x-2">
+                                                                            <span className={`px-2 py-1 rounded text-xs ${server.isEnabled
+                                                                                    ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200'
+                                                                                    : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+                                                                                }`}>
+                                                                                {server.isEnabled ? 'Enabled' : 'Disabled'}
+                                                                            </span>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleMCPServerEdit(group.id, server)}
+                                                                                className="p-1 text-gray-500 hover:text-blue-600 dark:hover:text-blue-400"
+                                                                            >
+                                                                                <Gear size={12} />
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleMCPServerDelete(server.id)}
+                                                                                className="p-1 text-gray-500 hover:text-red-600 dark:hover:text-red-400"
+                                                                            >
+                                                                                <X size={12} />
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
                                                             </div>
-                                                        ))}
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>
@@ -365,6 +483,18 @@ export const AgentManagementPanel: React.FC<AgentManagementPanelProps> = ({
                         )}
                     </div>
                 </div>
+
+                {/* MCP Server Config Modal */}
+                {mcpServerModal.isOpen && (
+                    <MCPServerConfigModal
+                        isOpen={mcpServerModal.isOpen}
+                        onClose={() => setMcpServerModal({ isOpen: false, mode: 'create', groupId: '', server: undefined })}
+                        onSave={handleMCPServerSave}
+                        mode={mcpServerModal.mode}
+                        groupId={mcpServerModal.groupId}
+                        server={mcpServerModal.server}
+                    />
+                )}
             </div>
         </div>
     );
