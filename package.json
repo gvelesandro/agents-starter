@@ -5,7 +5,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "vite dev",
+    "start": "concurrently \"npm:dev\" \"vite dev\"",
     "dev": "wrangler dev",
     "deploy": "vite build && wrangler deploy",
     "test": "vitest",
@@ -40,6 +40,7 @@
     "@types/react-dom": "^19.1.5",
     "@vitejs/plugin-react": "^4.4.1",
     "@vitest/coverage-v8": "^3.1.3",
+    "concurrently": "^9.2.0",
     "jsdom": "^26.1.0",
     "prettier": "^3.5.3",
     "tailwindcss": "^4.1.6",
