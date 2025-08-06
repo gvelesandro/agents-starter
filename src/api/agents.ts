@@ -327,11 +327,20 @@ export async function getThreadAgents(
         const threadAgents = await db
             .prepare(
                 `
-      SELECT DISTINCT ta.agent_id, ta.role, ta.added_at, ta.added_reason, 
-             a.name as agent_name, a.color
+      SELECT ta.agent_id, ta.role, ta.added_at, ta.added_reason, 
+             a.name as agent_name, a.description, a.color, a.is_active, 
+             a.usage_count, a.last_used, a.created_at, a.updated_at
       FROM thread_agents ta
       JOIN agents a ON ta.agent_id = a.id
       WHERE ta.thread_id = ? AND ta.user_id = ? AND ta.is_active = TRUE
+        AND ta.added_at = (
+          SELECT MAX(ta2.added_at) 
+          FROM thread_agents ta2 
+          WHERE ta2.agent_id = ta.agent_id 
+            AND ta2.thread_id = ta.thread_id 
+            AND ta2.user_id = ta.user_id 
+            AND ta2.is_active = TRUE
+        )
       ORDER BY ta.added_at ASC
     `
             )
@@ -340,14 +349,38 @@ export async function getThreadAgents(
 
         console.log(`[API] Thread agents query results:`, threadAgents.results);
 
-        const activeAgents = threadAgents.results.map((ta: any) => ({
-            agentId: ta.agent_id,
-            agentName: ta.agent_name,
-            role: ta.role,
-            addedAt: new Date(ta.added_at),
-            addedReason: ta.added_reason,
-            toolGroups: [], // TODO: Populate with actual tool groups
-        }));
+        const activeAgents = await Promise.all(
+            threadAgents.results.map(async (ta: any) => {
+                // Get MCP group associations for each agent
+                const groups = await db
+                    .prepare(
+                        `
+          SELECT group_id FROM agent_mcp_groups 
+          WHERE agent_id = ?
+        `
+                    )
+                    .bind(ta.agent_id)
+                    .all();
+
+                return {
+                    id: ta.agent_id,
+                    name: ta.agent_name,
+                    description: ta.description,
+                    color: ta.color || 'blue',
+                    isActive: ta.is_active,
+                    usageCount: ta.usage_count || 0,
+                    lastUsed: ta.last_used ? new Date(ta.last_used) : undefined,
+                    createdAt: new Date(ta.created_at),
+                    updatedAt: new Date(ta.updated_at),
+                    mcpGroupIds: groups.results.map((g: any) => g.group_id),
+                    userId: userId,
+                    role: ta.role,
+                    addedAt: new Date(ta.added_at),
+                    addedReason: ta.added_reason,
+                    toolGroups: [], // TODO: Populate with actual tool groups
+                };
+            })
+        );
 
         console.log(`[API] Processed active agents:`, activeAgents);
 
