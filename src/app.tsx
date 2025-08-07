@@ -1377,7 +1377,7 @@ export default function Chat() {
   };
 
   // agent and useAgentChat hooks are now inside ChatInterface
-  // Other states like pendingToolCallConfirmation, formatTime are also moved to ChatInterface
+  // Other states like pendingToolCallConfirmation, formatTime are moved to ChatInterface
 
   return (
     <div className="h-[100vh] w-full flex bg-fixed overflow-hidden">

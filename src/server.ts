@@ -729,6 +729,7 @@ export default {
       "/auth/logout",
       "/auth/me", // Added /auth/me
       "/check-open-ai-key",
+      "/api/check-open-ai-key",  // Add this line to allow the API endpoint
       // Add any other public static asset paths if they are served through this worker
       // and not via a separate routing rule or 'assets' configuration in wrangler.jsonc.
       // For example, if you have CSS or JS files directly served.
@@ -1065,11 +1066,23 @@ export default {
       }
     }
 
-    // Route for /check-open-ai-key (this seems to be public already)
+    // Route for /check-open-ai-key
     if (url.pathname === "/check-open-ai-key") {
       const hasOpenAIKey = !!env.OPENAI_API_KEY;
+      console.log('OpenAI Key Check:', {
+        hasKey: hasOpenAIKey,
+        keyLength: env.OPENAI_API_KEY?.length || 0
+      });
       return Response.json({
-        success: hasOpenAIKey,
+        success: hasOpenAIKey,  // Changed back to 'success' to match HasOpenAIKey component
+      });
+    }
+
+    // Add the API route for OpenAI key check (keep for consistency)
+    if (url.pathname === "/api/check-open-ai-key") {
+      const hasOpenAIKey = !!env.OPENAI_API_KEY;
+      return Response.json({
+        hasKey: hasOpenAIKey,
       });
     }
 
