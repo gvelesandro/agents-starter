@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Plus, Gear, X, CaretDown, CaretRight } from '@phosphor-icons/react';
-import type { Agent, MCPGroup } from '../../types/mcp';
+import type { Agent, MCPGroup, IndependentMCPServer } from '../../types/mcp';
 import { MCPServerConfigModal } from '../mcp-config/MCPServerConfigModal';
 
 interface AgentManagementPanelProps {
@@ -8,6 +8,7 @@ interface AgentManagementPanelProps {
     onClose: () => void;
     agents: Agent[];
     mcpGroups: MCPGroup[];
+    independentMCPServers: IndependentMCPServer[];
     onCreateAgent: (agent: Omit<Agent, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'usageCount'>) => void;
     onUpdateAgent: (agentId: string, updates: Partial<Agent>) => void;
     onDeleteAgent: (agentId: string) => void;
@@ -30,6 +31,7 @@ export const AgentManagementPanel: React.FC<AgentManagementPanelProps> = ({
     onClose,
     agents,
     mcpGroups,
+    independentMCPServers,
     onCreateAgent,
     onUpdateAgent,
     onDeleteAgent,
@@ -56,7 +58,8 @@ export const AgentManagementPanel: React.FC<AgentManagementPanelProps> = ({
         description: '',
         persona: '',
         color: 'blue',
-        mcpGroupIds: [] as string[]
+        mcpGroupIds: [] as string[],
+        mcpServerIds: [] as string[]
     });
 
     const resetForm = () => {
@@ -65,7 +68,8 @@ export const AgentManagementPanel: React.FC<AgentManagementPanelProps> = ({
             description: '',
             persona: '',
             color: 'blue',
-            mcpGroupIds: []
+            mcpGroupIds: [],
+            mcpServerIds: []
         });
         setEditingAgent(null);
         setIsCreating(false);
@@ -78,15 +82,19 @@ export const AgentManagementPanel: React.FC<AgentManagementPanelProps> = ({
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        
+        console.log('Submitting agent form with data:', formData);
 
         if (editingAgent) {
             onUpdateAgent(editingAgent.id, formData);
         } else {
-            onCreateAgent({
+            const agentData = {
                 ...formData,
                 isActive: false,
                 lastUsed: undefined
-            });
+            };
+            console.log('Creating new agent with data:', agentData);
+            onCreateAgent(agentData);
         }
 
         resetForm();
@@ -177,7 +185,8 @@ export const AgentManagementPanel: React.FC<AgentManagementPanelProps> = ({
             description: agent.description || '',
             persona: agent.persona || '',
             color: agent.color,
-            mcpGroupIds: agent.mcpGroupIds
+            mcpGroupIds: agent.mcpGroupIds,
+            mcpServerIds: agent.mcpServerIds || []
         });
         setEditingAgent(agent);
         setIsCreating(true);
@@ -455,6 +464,64 @@ export const AgentManagementPanel: React.FC<AgentManagementPanelProps> = ({
                                     {mcpGroups.length === 0 && (
                                         <p className="text-sm text-gray-500 dark:text-neutral-400 italic">
                                             No MCP tool groups available. Create MCP servers first.
+                                        </p>
+                                    )}
+                                </div>
+
+                                {/* Independent MCP Servers Selection */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-neutral-300 mb-2">
+                                        Direct MCP Servers
+                                        <span className="text-xs text-gray-500 dark:text-neutral-400 font-normal ml-2">
+                                            (Use existing MCP servers directly)
+                                        </span>
+                                    </label>
+                                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                                        {independentMCPServers.map((server) => (
+                                            <div key={server.id} className="border border-gray-200 dark:border-neutral-600 rounded-lg p-3">
+                                                <label className="flex items-center space-x-3 cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={formData.mcpServerIds.includes(server.id)}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) {
+                                                                setFormData({
+                                                                    ...formData,
+                                                                    mcpServerIds: [...formData.mcpServerIds, server.id]
+                                                                });
+                                                            } else {
+                                                                setFormData({
+                                                                    ...formData,
+                                                                    mcpServerIds: formData.mcpServerIds.filter(id => id !== server.id)
+                                                                });
+                                                            }
+                                                        }}
+                                                        className="rounded border-gray-300 dark:border-neutral-600 text-blue-600 dark:text-blue-400 focus:ring-blue-500 bg-white dark:bg-neutral-700"
+                                                    />
+                                                    <div className="flex items-center space-x-2 flex-1">
+                                                        <div className={`w-3 h-3 rounded-full ${server.status === 'connected' ? 'bg-green-500' :
+                                                            server.status === 'disconnected' ? 'bg-gray-400' :
+                                                                server.status === 'error' ? 'bg-red-500' :
+                                                                    'bg-yellow-500'
+                                                            }`} />
+                                                        <span className="text-sm font-medium text-gray-900 dark:text-neutral-100">{server.name}</span>
+                                                        <span className="text-xs text-gray-500 dark:text-neutral-400">
+                                                            {server.transport} • {server.url}
+                                                        </span>
+                                                    </div>
+                                                    <span className={`px-2 py-1 rounded text-xs ${server.isEnabled
+                                                        ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200'
+                                                        : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+                                                        }`}>
+                                                        {server.isEnabled ? 'Enabled' : 'Disabled'}
+                                                    </span>
+                                                </label>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    {independentMCPServers.length === 0 && (
+                                        <p className="text-sm text-gray-500 dark:text-neutral-400 italic">
+                                            No independent MCP servers available. Create some in the MCP Library.
                                         </p>
                                     )}
                                 </div>

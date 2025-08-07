@@ -8,12 +8,19 @@ import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
 import type { Agent, MCPGroup } from "../types/mcp";
 
+// Type definition for Cloudflare Worker environment
+interface Env {
+    DB: any; // D1Database type
+    [key: string]: any;
+}
+
 // Validation schemas
 const createAgentSchema = z.object({
     name: z.string().min(1).max(50),
     description: z.string().optional(),
     persona: z.string().optional(),
     mcpGroupIds: z.array(z.string()),
+    mcpServerIds: z.array(z.string()).optional().default([]),
     color: z.string().default("blue"),
 });
 
@@ -101,22 +108,31 @@ export async function getAgents(env: Env): Promise<Response> {
             .bind(userId)
             .all();
 
-        // Get MCP group associations for each agent
-        const agentsWithGroups = await Promise.all(
+        // Get MCP group and server associations for each agent
+        const agentsWithAssociations = await Promise.all(
             agents.results.map(async (agent: any) => {
+                // Get MCP group associations
                 const groups = await db
-                    .prepare(
-                        `
+                    .prepare(`
           SELECT group_id FROM agent_mcp_groups 
           WHERE agent_id = ?
-        `
-                    )
+        `)
+                    .bind(agent.id)
+                    .all();
+
+                // Get direct MCP server associations
+                const servers = await db
+                    .prepare(`
+          SELECT server_id FROM agent_mcp_servers 
+          WHERE agent_id = ?
+        `)
                     .bind(agent.id)
                     .all();
 
                 return {
                     ...agent,
                     mcpGroupIds: groups.results.map((g: any) => g.group_id),
+                    mcpServerIds: servers.results.map((s: any) => s.server_id),
                     lastUsed: agent.last_used ? new Date(agent.last_used) : undefined,
                     createdAt: new Date(agent.created_at),
                     updatedAt: new Date(agent.updated_at),
@@ -124,7 +140,7 @@ export async function getAgents(env: Env): Promise<Response> {
             })
         );
 
-        return new Response(JSON.stringify({ agents: agentsWithGroups }), {
+        return new Response(JSON.stringify({ agents: agentsWithAssociations }), {
             headers: { "Content-Type": "application/json" },
         });
     } catch (error) {
@@ -180,12 +196,25 @@ export async function createAgent(
             }
         }
 
+        // Associate with independent MCP servers
+        if (data.mcpServerIds && data.mcpServerIds.length > 0) {
+            const stmt = db.prepare(`
+        INSERT INTO agent_mcp_servers (agent_id, server_id, user_id)
+        VALUES (?, ?, ?)
+      `);
+
+            for (const serverId of data.mcpServerIds) {
+                await stmt.bind(agentId, serverId, userId).run();
+            }
+        }
+
         const agent: Agent = {
             id: agentId,
             name: data.name,
             description: data.description,
             persona: data.persona,
             mcpGroupIds: data.mcpGroupIds,
+            mcpServerIds: data.mcpServerIds || [],
             userId,
             color: data.color || "blue",
             isActive: false,
@@ -265,12 +294,10 @@ export async function updateAgent(
         if (data.mcpGroupIds !== undefined) {
             // Delete existing associations
             await db
-                .prepare(
-                    `
+                .prepare(`
         DELETE FROM agent_mcp_groups 
         WHERE agent_id = ? AND user_id = ?
-      `
-                )
+      `)
                 .bind(agentId, userId)
                 .run();
 
@@ -283,6 +310,30 @@ export async function updateAgent(
 
                 for (const groupId of data.mcpGroupIds) {
                     await stmt.bind(agentId, groupId, userId).run();
+                }
+            }
+        }
+
+        // Update MCP server associations if provided
+        if (data.mcpServerIds !== undefined) {
+            // Delete existing associations
+            await db
+                .prepare(`
+        DELETE FROM agent_mcp_servers 
+        WHERE agent_id = ? AND user_id = ?
+      `)
+                .bind(agentId, userId)
+                .run();
+
+            // Add new associations
+            if (data.mcpServerIds.length > 0) {
+                const stmt = db.prepare(`
+          INSERT INTO agent_mcp_servers (agent_id, server_id, user_id)
+          VALUES (?, ?, ?)
+        `);
+
+                for (const serverId of data.mcpServerIds) {
+                    await stmt.bind(agentId, serverId, userId).run();
                 }
             }
         }

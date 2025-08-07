@@ -5,6 +5,7 @@ export interface Agent {
     description?: string;
     persona?: string;
     mcpGroupIds: string[];
+    mcpServerIds: string[]; // Direct MCP server associations
     userId: string;
     color: string;
     isActive: boolean;
@@ -72,6 +73,23 @@ export interface IndependentMCPServer {
     status?: "connected" | "disconnected" | "error" | "authenticating" | "pending_auth";
     tools?: string[];
     lastTested?: Date;
+    createdAt: Date;
+    updatedAt: Date;
+}
+
+export interface IndependentMCPServer {
+    id: string;
+    name: string;
+    description?: string;
+    url: string;
+    transport: "websocket" | "sse";
+    authType: "none" | "apikey" | "basic" | "oauth2" | "custom";
+    authConfig?: any;
+    isEnabled: boolean;
+    status?: "connected" | "disconnected" | "error" | "authenticating" | "pending_auth";
+    tools?: string[];
+    lastTested?: Date;
+    userId: string;
     createdAt: Date;
     updatedAt: Date;
 }

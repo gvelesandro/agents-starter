@@ -1127,14 +1127,23 @@ export default function Chat() {
 
   const handleCreateAgent = async (agentData: any) => {
     try {
+      console.log('Creating agent with data:', agentData);
       const response = await fetch("/api/agents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: 'include',
         body: JSON.stringify(agentData),
       });
+      
+      console.log('Response status:', response.status);
+      const responseText = await response.text();
+      console.log('Response text:', responseText);
+      
       if (response.ok) {
+        console.log('Agent created successfully');
         loadAvailableAgents();
+      } else {
+        console.error('Failed to create agent:', responseText);
       }
     } catch (error) {
       console.error("Failed to create agent:", error);
@@ -1626,6 +1635,7 @@ export default function Chat() {
               onClose={() => setShowAgentManagement(false)}
               agents={availableAgents}
               mcpGroups={mcpGroups}
+              independentMCPServers={independentMCPServers}
               onCreateAgent={handleCreateAgent}
               onUpdateAgent={handleUpdateAgent}
               onDeleteAgent={handleDeleteAgent}

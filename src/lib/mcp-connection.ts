@@ -449,15 +449,25 @@ export async function getMCPToolsForThread(
             WHERE ta.thread_id = ? AND ta.is_active = TRUE
         `).bind(threadId).all();
 
+        // Get directly assigned agent MCP servers for active agents in this thread
+        const agentMCPServers = await db.prepare(`
+            SELECT DISTINCT mis.*, 'agent_direct' as source_type
+            FROM thread_agents ta
+            JOIN agents a ON ta.agent_id = a.id
+            JOIN agent_mcp_servers ams ON a.id = ams.agent_id  
+            JOIN mcp_servers_independent mis ON ams.server_id = mis.id
+            WHERE ta.thread_id = ? AND ta.is_active = TRUE AND mis.is_enabled = TRUE
+        `).bind(threadId).all();
+
         // Get directly assigned MCP servers for this thread
         const threadMCPServers = await db.prepare(`
-            SELECT mis.* FROM thread_mcp_servers tms
+            SELECT mis.*, 'thread_direct' as source_type FROM thread_mcp_servers tms
             JOIN mcp_servers_independent mis ON tms.server_id = mis.id
             WHERE tms.thread_id = ? AND tms.is_active = TRUE AND mis.is_enabled = TRUE
         `).bind(threadId).all();
 
         // Get MCP servers from agent groups
-        const allServerConfigs = [...threadMCPServers.results];
+        const allServerConfigs = [...threadMCPServers.results, ...agentMCPServers.results];
         
         if (threadAgents.results.length > 0) {
             const groupIds = Array.from(new Set(threadAgents.results.map((agent: any) => agent.group_id)));
@@ -466,7 +476,8 @@ export async function getMCPToolsForThread(
                 const groupServers = await db.prepare(`
                     SELECT ms.*, ms.id as server_id, ms.name as server_name, 
                            ms.url as server_url, ms.transport, ms.auth_type,
-                           ms.user_id, ms.group_id, ms.is_enabled, ms.status
+                           ms.user_id, ms.group_id, ms.is_enabled, ms.status,
+                           'agent_group' as source_type
                     FROM mcp_servers ms
                     WHERE ms.group_id IN (${groupIds.map(() => '?').join(',')}) AND ms.is_enabled = TRUE
                 `).bind(...groupIds).all();
