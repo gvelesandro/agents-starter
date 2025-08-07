@@ -24,32 +24,36 @@ The issue occurs due to a **race condition between component re-mounting and age
 ## Key Issues
 
 ### Issue 1: Component Re-mounting
+
 The `key` prop forces complete re-mount:
+
 ```tsx
 <ChatInterface
-  key={`${currentUser.userId}-${currentThreadId}`}  // Forces re-mount
+  key={`${currentUser.userId}-${currentThreadId}`} // Forces re-mount
   currentThreadId={currentThreadId}
   // ...
 />
 ```
 
 ### Issue 2: Race Condition in Agent Setup
+
 ```tsx
 // Agent connection name set immediately
 const agent = useAgent({
   agent: "chat",
-  name: `${currentUser?.userId}-${currentThreadId}`,  // ✅ Correct
+  name: `${currentUser?.userId}-${currentThreadId}`, // ✅ Correct
 });
 
 // But canUseAgentChat depends on agent.agent being ready
 useEffect(() => {
   setCanUseAgentChat(
-    enabled && !!currentUser?.userId && !!currentThreadId && !!agent.agent  // ⚠️ May not be ready
+    enabled && !!currentUser?.userId && !!currentThreadId && !!agent.agent // ⚠️ May not be ready
   );
 }, [enabled, currentUser?.userId, currentThreadId, agent.agent]);
 ```
 
 ### Issue 3: Message History Loading Race
+
 ```tsx
 // History starts as undefined
 const [historyMessages, setHistoryMessages] = useState<Message[] | undefined>(undefined);
@@ -71,11 +75,13 @@ useEffect(() => {
 ```
 
 ### Issue 4: Server-Side Thread ID Extraction Timing
+
 ```typescript
 // In Chat.onChatMessage()
 let threadId = "default";
 
-if (this.name) {  // ⚠️ this.name might not be set yet
+if (this.name) {
+  // ⚠️ this.name might not be set yet
   const parts = this.name.split("-");
   if (parts.length >= 2) {
     const extractedThreadId = parts.slice(1).join("-").trim();
@@ -87,12 +93,15 @@ if (this.name) {  // ⚠️ this.name might not be set yet
 ## Evidence
 
 ### 1. Thread ID Extraction Logic is Correct
+
 ✅ Tested extraction logic - works perfectly for all cases:
+
 - `"user123-default"` → `"default"`
 - `"user123-thread_abc123"` → `"thread_abc123"`
 - `"user123-thread_2024-01-15-session-abc"` → `"thread_2024-01-15-session-abc"`
 
 ### 2. Component Lifecycle Issues
+
 ❌ ChatInterface re-mounts on every thread switch
 ❌ Agent connection and history loading happen in parallel
 ❌ User can send message before setup completes
@@ -100,6 +109,7 @@ if (this.name) {  // ⚠️ this.name might not be set yet
 ## Potential Solutions
 
 ### Solution 1: Remove Component Re-mounting
+
 Remove the `key` prop and handle thread switching within the same component instance:
 
 ```tsx
@@ -111,13 +121,16 @@ Remove the `key` prop and handle thread switching within the same component inst
 ```
 
 ### Solution 2: Proper Loading States
+
 Wait for both agent connection and history loading before enabling chat:
 
 ```tsx
-const isReady = canUseAgentChat && !isLoadingHistory && historyMessages !== undefined;
+const isReady =
+  canUseAgentChat && !isLoadingHistory && historyMessages !== undefined;
 ```
 
 ### Solution 3: Agent Connection Verification
+
 Add logging to verify agent.name is set correctly before first message:
 
 ```tsx
@@ -127,6 +140,7 @@ console.log("Extracted thread ID:", threadId);
 ```
 
 ### Solution 4: Prevent Premature Message Sending
+
 Disable input until agent and history are fully loaded:
 
 ```tsx
@@ -136,7 +150,7 @@ const canSendMessage = isReady && !isAgentLoading && agentInput.trim();
 ## Recommended Fix Priority
 
 1. **High**: Remove component re-mounting (Solution 1)
-2. **High**: Wait for both agent and history ready (Solution 2) 
+2. **High**: Wait for both agent and history ready (Solution 2)
 3. **Medium**: Add proper loading states and disable input (Solution 4)
 4. **Low**: Add debug logging for verification (Solution 3)
 

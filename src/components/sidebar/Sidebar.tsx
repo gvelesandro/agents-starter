@@ -34,7 +34,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [lastRefreshTime, setLastRefreshTime] = useState<number>(Date.now());
 
   // Get threads with active notifications
-  const { getThreadsWithNotifications, markThreadAsRead } = useNotificationContext();
+  const { getThreadsWithNotifications, markThreadAsRead } =
+    useNotificationContext();
   const threadsWithNotifications = getThreadsWithNotifications();
 
   const handleThreadSelect = (threadId: string) => {
@@ -219,9 +220,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className={`
                     group flex items-center justify-between p-3 rounded-lg cursor-pointer
                     hover:bg-neutral-100 dark:hover:bg-neutral-800
-                    ${currentThreadId === thread.id
-                      ? "bg-neutral-100 dark:bg-neutral-800 border-l-2 border-blue-500"
-                      : ""
+                    ${
+                      currentThreadId === thread.id
+                        ? "bg-neutral-100 dark:bg-neutral-800 border-l-2 border-blue-500"
+                        : ""
                     }
                   `}
                 >

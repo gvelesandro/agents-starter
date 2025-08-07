@@ -33,6 +33,11 @@ import { NotificationButton } from "@/components/notifications/NotificationButto
 import { useTaskMessageNotifications } from "@/hooks/useTaskMessageNotifications";
 import { useNotificationContext } from "@/providers/NotificationProvider";
 
+// MCP Agent imports
+import { AgentQuickSelector } from "@/components/agent-selector/AgentQuickSelector";
+import { AgentManagementPanel } from "@/components/agent-selector/AgentManagementPanel";
+import { MCPServerLibrary } from "@/components/mcp-library/MCPServerLibrary";
+
 // List of tools that require human confirmation
 const toolsRequiringConfirmation: (keyof typeof tools)[] = [
   "getWeatherInformation",
@@ -50,481 +55,497 @@ const ChatInterface: React.FC<{
   currentUser: User | null;
   setCurrentUser: React.Dispatch<React.SetStateAction<User | null>>;
   currentThreadId: string;
-}> = ({
-  enabled,
-  currentUser,
-  setCurrentUser,
-  currentThreadId,
-}) => {
-    // State to control when we can safely use the agent chat hook
-    const [canUseAgentChat, setCanUseAgentChat] = useState(false);
+}> = ({ enabled, currentUser, setCurrentUser, currentThreadId }) => {
+  // State to control when we can safely use the agent chat hook
+  const [canUseAgentChat, setCanUseAgentChat] = useState(false);
 
-    // Get notification context for cross-thread notifications
-    const { addNotification } = useNotificationContext();
+  // Get notification context for cross-thread notifications
+  const { addNotification } = useNotificationContext();
 
-    const [historyMessages, setHistoryMessages] = useState<Message[] | undefined>(
-      undefined
-    );
-    const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(true);
+  const [historyMessages, setHistoryMessages] = useState<Message[] | undefined>(
+    undefined
+  );
+  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(true);
 
-    const agent = useAgent({
-      agent: "chat",
-      name: `${currentUser?.userId}-${currentThreadId}`,
-    });
+  const agent = useAgent({
+    agent: "chat",
+    name: `${currentUser?.userId}-${currentThreadId}`,
+  });
 
-    // Enable agent chat only when we have a valid user, thread, and history is loaded
-    useEffect(() => {
-      const expectedName = `${currentUser?.userId}-${currentThreadId}`;
-      const shouldEnable = enabled &&
-        !!currentUser?.userId &&
-        !!currentThreadId &&
-        !!agent.agent &&
-        !isLoadingHistory &&
-        historyMessages !== undefined;
+  // Enable agent chat only when we have a valid user, thread, and history is loaded
+  useEffect(() => {
+    const expectedName = `${currentUser?.userId}-${currentThreadId}`;
+    const shouldEnable =
+      enabled &&
+      !!currentUser?.userId &&
+      !!currentThreadId &&
+      !!agent.agent &&
+      !isLoadingHistory &&
+      historyMessages !== undefined;
 
-      // Allow some flexibility with agent name during task execution
-      const nameMatches = agent.name === expectedName ||
-        (agent.name && agent.name === `${currentUser?.userId}-default`) ||
-        (agent.name && agent.name === `${currentUser?.userId}-scheduled-task`);
+    // Allow some flexibility with agent name during task execution
+    const nameMatches =
+      agent.name === expectedName ||
+      (agent.name && agent.name === `${currentUser?.userId}-default`) ||
+      (agent.name && agent.name === `${currentUser?.userId}-scheduled-task`);
 
-      // When thread changes, immediately disable agent chat to force a clean state
-      if (currentThreadId !== (window as any).lastThreadId) {
-        console.log(`[THREAD_SWITCH] Thread changed from "${(window as any).lastThreadId}" to "${currentThreadId}"`);
-        (window as any).lastThreadId = currentThreadId;
-        setCanUseAgentChat(false);
-        return;
-      }
+    // When thread changes, immediately disable agent chat to force a clean state
+    if (currentThreadId !== (window as any).lastThreadId) {
+      console.log(
+        `[THREAD_SWITCH] Thread changed from "${(window as any).lastThreadId}" to "${currentThreadId}"`
+      );
+      (window as any).lastThreadId = currentThreadId;
+      setCanUseAgentChat(false);
+      return;
+    }
 
-      if (shouldEnable) {
-        if (nameMatches) {
-          // Add a small delay to ensure agent connection is fully established
-          const timer = setTimeout(() => {
-            setCanUseAgentChat(true);
-          }, 100);
-          return () => clearTimeout(timer);
-        } else {
-          // Name doesn't match but other conditions are met - keep enabled for task execution
-          console.log(`[AGENT] Name mismatch during task execution: expected "${expectedName}", got "${agent.name}"`);
+    if (shouldEnable) {
+      if (nameMatches) {
+        // Add a small delay to ensure agent connection is fully established
+        const timer = setTimeout(() => {
           setCanUseAgentChat(true);
-        }
+        }, 100);
+        return () => clearTimeout(timer);
       } else {
-        setCanUseAgentChat(false);
+        // Name doesn't match but other conditions are met - keep enabled for task execution
+        console.log(
+          `[AGENT] Name mismatch during task execution: expected "${expectedName}", got "${agent.name}"`
+        );
+        setCanUseAgentChat(true);
       }
-    }, [enabled, currentUser?.userId, currentThreadId, agent.agent, agent.name, isLoadingHistory, historyMessages]);
+    } else {
+      setCanUseAgentChat(false);
+    }
+  }, [
+    enabled,
+    currentUser?.userId,
+    currentThreadId,
+    agent.agent,
+    agent.name,
+    isLoadingHistory,
+    historyMessages,
+  ]);
 
-    // Debug agent info
-    useEffect(() => {
-      console.log("Agent info:", {
-        agent: agent.agent,
-        name: agent.name,
-        currentThreadId,
-        currentUser: currentUser?.userId,
-        canUseAgentChat,
-        isLoadingHistory,
-        historyMessagesLength: historyMessages?.length,
-        historyMessagesUndefined: historyMessages === undefined,
-      });
-    }, [agent, currentThreadId, currentUser, canUseAgentChat, isLoadingHistory, historyMessages]);
-
-    // Monitor all threads for scheduled task notifications
-    useEffect(() => {
-      if (!currentUser?.userId) return;
-
-      // Load previously notified task completions from localStorage
-      const getNotifiedTaskCompletions = (): Set<string> => {
-        try {
-          const stored = localStorage.getItem('notifiedTaskCompletions');
-          return stored ? new Set(JSON.parse(stored)) : new Set<string>();
-        } catch {
-          return new Set<string>();
-        }
-      };
-
-      const saveNotifiedTaskCompletions = (completions: Set<string>) => {
-        try {
-          localStorage.setItem('notifiedTaskCompletions', JSON.stringify([...completions]));
-        } catch (error) {
-          console.error('Failed to save notified task completions:', error);
-        }
-      };
-
-      // Load and save thread message counts from localStorage
-      const getThreadMessageCounts = (): Map<string, number> => {
-        try {
-          const stored = localStorage.getItem('threadMessageCounts');
-          return stored ? new Map(JSON.parse(stored)) : new Map<string, number>();
-        } catch {
-          return new Map<string, number>();
-        }
-      };
-
-      const saveThreadMessageCounts = (counts: Map<string, number>) => {
-        try {
-          localStorage.setItem('threadMessageCounts', JSON.stringify([...counts]));
-        } catch (error) {
-          console.error('Failed to save thread message counts:', error);
-        }
-      };
-
-      let initializationComplete = false;
-
-      // Initialize tracking by syncing with existing notifications on first load
-      const initializeTracking = async () => {
-        try {
-          console.log(`[NOTIFICATION_INIT] Starting initialization for user ${currentUser.userId}`);
-
-          // Get existing notifications to avoid re-showing them
-          const existingNotifications = localStorage.getItem('app_notifications');
-          const notifications = existingNotifications ? JSON.parse(existingNotifications) : [];
-
-          console.log(`[NOTIFICATION_INIT] Found ${notifications.length} existing notifications`);
-
-          // Extract task completion IDs from existing scheduled task notifications
-          const existingTaskCompletions = new Set<string>();
-          notifications.forEach((notification: any) => {
-            if (notification.title === "Scheduled Task Completed" && notification.threadId) {
-              // We need to reverse-engineer the assistant message ID from the notification
-              // For now, we'll mark this thread as having been processed
-              console.log(`[NOTIFICATION_INIT] Found existing notification for thread ${notification.threadId}`);
-            }
-          });
-
-          // Get all threads and set initial message counts to current state
-          // This prevents re-detection of old messages on page refresh
-          const threadsResponse = await fetch("/threads");
-          if (threadsResponse.ok) {
-            const threads = await threadsResponse.json() as Array<{ id: string, title: string }>;
-            const initialCounts = new Map<string, number>();
-
-            console.log(`[NOTIFICATION_INIT] Processing ${threads.length} threads`);
-
-            for (const thread of threads) {
-              try {
-                const threadUrl = thread.id === "default" ? "/chat/history" : `/threads/${thread.id}`;
-                const response = await fetch(threadUrl);
-                if (response.ok) {
-                  const messages = await response.json() as Message[];
-                  initialCounts.set(thread.id, messages.length);
-
-                  // Also mark any existing scheduled task completions as already notified
-                  for (let i = 0; i < messages.length - 1; i++) {
-                    const userMessage = messages[i];
-                    const assistantMessage = messages[i + 1];
-
-                    if (userMessage?.role === "user" &&
-                      userMessage.content.startsWith("Running scheduled task:") &&
-                      assistantMessage?.role === "assistant" &&
-                      assistantMessage.id) {
-                      existingTaskCompletions.add(assistantMessage.id);
-                    }
-                  }
-                }
-              } catch (error) {
-                console.error(`Failed to initialize tracking for thread ${thread.id}:`, error);
-              }
-            }
-
-            console.log(`[NOTIFICATION_INIT] Setting initial counts:`, Object.fromEntries(initialCounts));
-            console.log(`[NOTIFICATION_INIT] Marking ${existingTaskCompletions.size} existing task completions as notified`);
-
-            // Force save to localStorage immediately
-            saveThreadMessageCounts(initialCounts);
-            saveNotifiedTaskCompletions(existingTaskCompletions);
-
-            console.log(`[NOTIFICATION_INIT] Initialization complete`);
-            initializationComplete = true;
-          } else {
-            console.error(`[NOTIFICATION_INIT] Failed to fetch threads:`, threadsResponse.status);
-          }
-        } catch (error) {
-          console.error('Failed to initialize notification tracking:', error);
-        }
-      };
-
-      // Run initialization once
-      initializeTracking();
-
-      const interval = setInterval(async () => {
-        // Don't run monitoring until initialization is complete
-        if (!initializationComplete) {
-          console.log(`[NOTIFICATION_MONITOR] Waiting for initialization to complete...`);
-          return;
-        }
-        try {
-          // Get current notified completions and message counts from localStorage
-          const notifiedTaskCompletions = getNotifiedTaskCompletions();
-          const threadMessageCounts = getThreadMessageCounts();
-
-          // Get all threads for the user
-          const threadsResponse = await fetch("/threads");
-          if (!threadsResponse.ok) return;
-
-          const threads = await threadsResponse.json() as Array<{ id: string, title: string }>;
-
-          let countsUpdated = false;
-
-          // Check each thread for new scheduled task completions
-          for (const thread of threads) {
-            // Skip the current thread - user can see those messages directly
-            if (thread.id === currentThreadId) continue;
-
-            try {
-              const threadUrl = thread.id === "default" ? "/chat/history" : `/threads/${thread.id}`;
-              const response = await fetch(threadUrl);
-              if (response.ok) {
-                const messages = await response.json() as Message[];
-                const previousCount = threadMessageCounts.get(thread.id) || 0;
-                const currentCount = messages.length;
-
-                // Update the count if it changed
-                if (currentCount !== previousCount) {
-                  threadMessageCounts.set(thread.id, currentCount);
-                  countsUpdated = true;
-                }
-
-                // If there are new messages, check if any are scheduled task completions
-                if (currentCount > previousCount && messages.length >= 2) {
-                  // Look for the pattern: user message "Running scheduled task:" followed by assistant response
-                  for (let i = Math.max(0, previousCount); i < messages.length - 1; i++) {
-                    const userMessage = messages[i];
-                    const assistantMessage = messages[i + 1];
-
-                    if (userMessage?.role === "user" &&
-                      userMessage.content.startsWith("Running scheduled task:") &&
-                      assistantMessage?.role === "assistant" &&
-                      assistantMessage.id &&
-                      !notifiedTaskCompletions.has(assistantMessage.id)) {
-
-                      // Mark this completion as notified
-                      notifiedTaskCompletions.add(assistantMessage.id);
-
-                      // Save updated notified completions to localStorage
-                      saveNotifiedTaskCompletions(notifiedTaskCompletions);
-
-                      const taskDescription = userMessage.content.replace("Running scheduled task: ", "");
-
-                      console.log(`[NOTIFICATION] Scheduled task completed in thread ${thread.id}: ${taskDescription}`);
-
-                      // Use the proper notification system
-                      addNotification({
-                        title: "Scheduled Task Completed",
-                        message: `Task completed in "${thread.title}": "${taskDescription}"`,
-                        type: "info",
-                        threadId: thread.id
-                      });
-                    }
-                  }
-                }
-              }
-            } catch (threadError) {
-              console.error(`Failed to check thread ${thread.id} for notifications:`, threadError);
-            }
-          }
-
-          // Save updated message counts if any changed
-          if (countsUpdated) {
-            saveThreadMessageCounts(threadMessageCounts);
-          }
-        } catch (error) {
-          console.error("Failed to check for scheduled task notifications:", error);
-        }
-      }, 5000); // Check more frequently (every 5 seconds) for better responsiveness
-
-      return () => clearInterval(interval);
-    }, [currentUser?.userId, currentThreadId, addNotification]);
-
-    useEffect(() => {
-      if (enabled && currentUser?.userId && currentThreadId) {
-        console.log(`[HISTORY_LOADING] Loading history for thread: ${currentThreadId}`);
-        setIsLoadingHistory(true);
-        const url =
-          currentThreadId === "default"
-            ? "/chat/history"
-            : `/threads/${currentThreadId}`;
-        fetch(url)
-          .then((res) => {
-            if (res.ok) {
-              return res.json();
-            }
-            if (res.status === 401) {
-              setCurrentUser(null);
-            }
-            console.error("Failed to fetch chat history, status:", res.status);
-            return [];
-          })
-          .then((data: unknown) => {
-            const messages = Array.isArray(data) ? (data as Message[]) : [];
-            console.log(`[HISTORY_LOADED] Loaded ${messages.length} messages for thread: ${currentThreadId}`);
-            setHistoryMessages(messages);
-          })
-          .catch((err) => {
-            console.error("Error fetching/parsing chat history:", err);
-            setHistoryMessages([]);
-          })
-          .finally(() => {
-            setIsLoadingHistory(false);
-          });
-      } else if (!enabled) {
-        setHistoryMessages(undefined);
-        setIsLoadingHistory(true);
-      }
-    }, [enabled, currentUser?.userId, currentThreadId, setCurrentUser]);
-
-    // Always call useAgentChat hook to avoid hook order violations
-    const agentChatResult = useAgentChat({
-      agent: agent,
-      initialMessages: historyMessages,
-      maxSteps: 5,
-      onError: (err) => {
-        console.error("Chat error:", err);
-        if (
-          err.message.includes("401") ||
-          err.message.toLowerCase().includes("unauthorized")
-        ) {
-          setCurrentUser(null);
-        }
-      },
-      onFinish: () => {
-        // Refresh threads in sidebar when conversation finishes
-        if (typeof (window as any).refreshThreads === "function") {
-          (window as any).refreshThreads();
-        }
-      },
+  // Debug agent info
+  useEffect(() => {
+    console.log("Agent info:", {
+      agent: agent.agent,
+      name: agent.name,
+      currentThreadId,
+      currentUser: currentUser?.userId,
+      canUseAgentChat,
+      isLoadingHistory,
+      historyMessagesLength: historyMessages?.length,
+      historyMessagesUndefined: historyMessages === undefined,
     });
+  }, [
+    agent,
+    currentThreadId,
+    currentUser,
+    canUseAgentChat,
+    isLoadingHistory,
+    historyMessages,
+  ]);
 
-    // Use actual values when ready, fallback values when not
-    const {
-      messages: agentMessages,
-      input: agentInput,
-      handleInputChange: handleAgentInputChange,
-      handleSubmit: handleAgentSubmit,
-      addToolResult,
-      clearHistory,
-      isLoading: isAgentLoading,
-      stop,
-    } = canUseAgentChat
-        ? agentChatResult
-        : {
-          messages: [],
-          input: "",
-          handleInputChange: () => { },
-          handleSubmit: () => { },
-          addToolResult: () => { },
-          clearHistory: () => { },
-          isLoading: false,
-          stop: () => { },
-        };
+  // Monitor all threads for scheduled task notifications
+  useEffect(() => {
+    if (!currentUser?.userId) return;
 
-    // Component remounting via key prop handles thread switching
-
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-    const scrollToBottom = useCallback(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, []);
-
-    useTaskMessageNotifications(agentMessages, currentThreadId);
-
-    useEffect(() => {
-      if (agentMessages.length > 0) {
-        scrollToBottom();
+    // Load previously notified task completions from localStorage
+    const getNotifiedTaskCompletions = (): Set<string> => {
+      try {
+        const stored = localStorage.getItem("notifiedTaskCompletions");
+        return stored ? new Set(JSON.parse(stored)) : new Set<string>();
+      } catch {
+        return new Set<string>();
       }
-    }, [agentMessages, scrollToBottom]);
-
-    const [showDebug, setShowDebug] = useState(() => {
-      const saved = localStorage.getItem("showDebug");
-      return saved ? JSON.parse(saved) : false;
-    });
-    useEffect(() => {
-      localStorage.setItem("showDebug", JSON.stringify(showDebug));
-    }, [showDebug]);
-
-    const pendingToolCallConfirmation = agentMessages.some((m: Message) =>
-      m.parts?.some(
-        (part) =>
-          part.type === "tool-invocation" &&
-          part.toolInvocation.state === "call" &&
-          toolsRequiringConfirmation.includes(
-            part.toolInvocation.toolName as keyof typeof tools
-          )
-      )
-    );
-
-    const formatTime = (date: Date) => {
-      return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     };
 
-    const [textareaHeight, setTextareaHeight] = useState("auto");
+    const saveNotifiedTaskCompletions = (completions: Set<string>) => {
+      try {
+        localStorage.setItem(
+          "notifiedTaskCompletions",
+          JSON.stringify([...completions])
+        );
+      } catch (error) {
+        console.error("Failed to save notified task completions:", error);
+      }
+    };
 
-    // Show loading state in the chat area while keeping sidebar functional
-    const isLoadingAgent = enabled && (isLoadingHistory || !canUseAgentChat);
+    // Load and save thread message counts from localStorage
+    const getThreadMessageCounts = (): Map<string, number> => {
+      try {
+        const stored = localStorage.getItem("threadMessageCounts");
+        return stored ? new Map(JSON.parse(stored)) : new Map<string, number>();
+      } catch {
+        return new Map<string, number>();
+      }
+    };
 
-    if (isLoadingAgent) {
-      return (
-        <>
-          {/* ChatInterface's own controls (Debug, Clear History) */}
-          <div className="px-4 py-3 border-b border-neutral-300 dark:border-neutral-800 flex items-center justify-between sticky top-0 bg-background dark:bg-neutral-900 z-10">
-            <div className="flex items-center gap-2">
-              <Bug size={16} />
-              <Toggle
-                toggled={showDebug}
-                aria-label="Toggle debug mode"
-                onClick={() => setShowDebug((prev: boolean) => !prev)}
-              />
-              <span className="text-xs text-muted-foreground">Debug</span>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                clearHistory();
-              }}
-              aria-label="Clear chat history"
-              disabled={true}
-            >
-              <Trash size={16} />
-              <span className="ml-1 text-xs">Clear</span>
-            </Button>
-          </div>
+    const saveThreadMessageCounts = (counts: Map<string, number>) => {
+      try {
+        localStorage.setItem(
+          "threadMessageCounts",
+          JSON.stringify([...counts])
+        );
+      } catch (error) {
+        console.error("Failed to save thread message counts:", error);
+      }
+    };
 
-          {/* Loading state in messages area */}
-          <div className="flex-1 flex items-center justify-center p-4">
-            <p className="text-muted-foreground">
-              {isLoadingHistory ? "Loading chat history..." : "Connecting to chat agent..."}
-            </p>
-          </div>
+    let initializationComplete = false;
 
-          {/* Disabled input form */}
-          <form className="p-3 bg-neutral-50 absolute bottom-0 left-0 right-0 z-10 border-t border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900">
-            <div className="flex items-center gap-2">
-              <div className="flex-1 relative">
-                <Textarea
-                  disabled={true}
-                  placeholder="Connecting to chat agent..."
-                  className="flex w-full border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-base ring-offset-background placeholder:text-neutral-500 dark:placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300 dark:focus-visible:ring-neutral-700 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-neutral-900 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-2xl pb-10 dark:bg-neutral-900"
-                  value=""
-                  rows={2}
-                />
-                <div className="absolute bottom-0 right-0 p-2 w-fit flex flex-row justify-end">
-                  <button
-                    type="button"
-                    disabled={true}
-                    className="inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full p-1.5 h-fit border border-neutral-200 dark:border-neutral-800"
-                    aria-label="Send message"
-                  >
-                    <PaperPlaneTilt size={16} />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </form>
-        </>
+    // Initialize tracking by syncing with existing notifications on first load
+    const initializeTracking = async () => {
+      try {
+        console.log(
+          `[NOTIFICATION_INIT] Starting initialization for user ${currentUser.userId}`
+        );
+
+        // Get existing notifications to avoid re-showing them
+        const existingNotifications = localStorage.getItem("app_notifications");
+        const notifications = existingNotifications
+          ? JSON.parse(existingNotifications)
+          : [];
+
+        console.log(
+          `[NOTIFICATION_INIT] Found ${notifications.length} existing notifications`
+        );
+
+        // Extract task completion IDs from existing scheduled task notifications
+        const existingTaskCompletions = new Set<string>();
+        notifications.forEach((notification: any) => {
+          if (
+            notification.title === "Scheduled Task Completed" &&
+            notification.threadId
+          ) {
+            // We need to reverse-engineer the assistant message ID from the notification
+            // For now, we'll mark this thread as having been processed
+            console.log(
+              `[NOTIFICATION_INIT] Found existing notification for thread ${notification.threadId}`
+            );
+          }
+        });
+
+        // Get all threads and set initial message counts to current state
+        // This prevents re-detection of old messages on page refresh
+        const threadsResponse = await fetch("/threads");
+        if (threadsResponse.ok) {
+          const threads = (await threadsResponse.json()) as Array<{
+            id: string;
+            title: string;
+          }>;
+          const initialCounts = new Map<string, number>();
+
+          console.log(
+            `[NOTIFICATION_INIT] Processing ${threads.length} threads`
+          );
+
+          for (const thread of threads) {
+            try {
+              const threadUrl =
+                thread.id === "default"
+                  ? "/chat/history"
+                  : `/threads/${thread.id}`;
+              const response = await fetch(threadUrl);
+              if (response.ok) {
+                const messages = (await response.json()) as Message[];
+                initialCounts.set(thread.id, messages.length);
+
+                // Also mark any existing scheduled task completions as already notified
+                for (let i = 0; i < messages.length - 1; i++) {
+                  const userMessage = messages[i];
+                  const assistantMessage = messages[i + 1];
+
+                  if (
+                    userMessage?.role === "user" &&
+                    userMessage.content.startsWith("Running scheduled task:") &&
+                    assistantMessage?.role === "assistant" &&
+                    assistantMessage.id
+                  ) {
+                    existingTaskCompletions.add(assistantMessage.id);
+                  }
+                }
+              }
+            } catch (error) {
+              console.error(
+                `Failed to initialize tracking for thread ${thread.id}:`,
+                error
+              );
+            }
+          }
+
+          console.log(
+            `[NOTIFICATION_INIT] Setting initial counts:`,
+            Object.fromEntries(initialCounts)
+          );
+          console.log(
+            `[NOTIFICATION_INIT] Marking ${existingTaskCompletions.size} existing task completions as notified`
+          );
+
+          // Force save to localStorage immediately
+          saveThreadMessageCounts(initialCounts);
+          saveNotifiedTaskCompletions(existingTaskCompletions);
+
+          console.log(`[NOTIFICATION_INIT] Initialization complete`);
+          initializationComplete = true;
+        } else {
+          console.error(
+            `[NOTIFICATION_INIT] Failed to fetch threads:`,
+            threadsResponse.status
+          );
+        }
+      } catch (error) {
+        console.error("Failed to initialize notification tracking:", error);
+      }
+    };
+
+    // Run initialization once
+    initializeTracking();
+
+    const interval = setInterval(async () => {
+      // Don't run monitoring until initialization is complete
+      if (!initializationComplete) {
+        console.log(
+          `[NOTIFICATION_MONITOR] Waiting for initialization to complete...`
+        );
+        return;
+      }
+      try {
+        // Get current notified completions and message counts from localStorage
+        const notifiedTaskCompletions = getNotifiedTaskCompletions();
+        const threadMessageCounts = getThreadMessageCounts();
+
+        // Get all threads for the user
+        const threadsResponse = await fetch("/threads");
+        if (!threadsResponse.ok) return;
+
+        const threads = (await threadsResponse.json()) as Array<{
+          id: string;
+          title: string;
+        }>;
+
+        let countsUpdated = false;
+
+        // Check each thread for new scheduled task completions
+        for (const thread of threads) {
+          // Skip the current thread - user can see those messages directly
+          if (thread.id === currentThreadId) continue;
+
+          try {
+            const threadUrl =
+              thread.id === "default"
+                ? "/chat/history"
+                : `/threads/${thread.id}`;
+            const response = await fetch(threadUrl);
+            if (response.ok) {
+              const messages = (await response.json()) as Message[];
+              const previousCount = threadMessageCounts.get(thread.id) || 0;
+              const currentCount = messages.length;
+
+              // Update the count if it changed
+              if (currentCount !== previousCount) {
+                threadMessageCounts.set(thread.id, currentCount);
+                countsUpdated = true;
+              }
+
+              // If there are new messages, check if any are scheduled task completions
+              if (currentCount > previousCount && messages.length >= 2) {
+                // Look for the pattern: user message "Running scheduled task:" followed by assistant response
+                for (
+                  let i = Math.max(0, previousCount);
+                  i < messages.length - 1;
+                  i++
+                ) {
+                  const userMessage = messages[i];
+                  const assistantMessage = messages[i + 1];
+
+                  if (
+                    userMessage?.role === "user" &&
+                    userMessage.content.startsWith("Running scheduled task:") &&
+                    assistantMessage?.role === "assistant" &&
+                    assistantMessage.id &&
+                    !notifiedTaskCompletions.has(assistantMessage.id)
+                  ) {
+                    // Mark this completion as notified
+                    notifiedTaskCompletions.add(assistantMessage.id);
+
+                    // Save updated notified completions to localStorage
+                    saveNotifiedTaskCompletions(notifiedTaskCompletions);
+
+                    const taskDescription = userMessage.content.replace(
+                      "Running scheduled task: ",
+                      ""
+                    );
+
+                    console.log(
+                      `[NOTIFICATION] Scheduled task completed in thread ${thread.id}: ${taskDescription}`
+                    );
+
+                    // Use the proper notification system
+                    addNotification({
+                      title: "Scheduled Task Completed",
+                      message: `Task completed in "${thread.title}": "${taskDescription}"`,
+                      type: "info",
+                      threadId: thread.id,
+                    });
+                  }
+                }
+              }
+            }
+          } catch (threadError) {
+            console.error(
+              `Failed to check thread ${thread.id} for notifications:`,
+              threadError
+            );
+          }
+        }
+
+        // Save updated message counts if any changed
+        if (countsUpdated) {
+          saveThreadMessageCounts(threadMessageCounts);
+        }
+      } catch (error) {
+        console.error(
+          "Failed to check for scheduled task notifications:",
+          error
+        );
+      }
+    }, 5000); // Check more frequently (every 5 seconds) for better responsiveness
+
+    return () => clearInterval(interval);
+  }, [currentUser?.userId, currentThreadId, addNotification]);
+
+  useEffect(() => {
+    if (enabled && currentUser?.userId && currentThreadId) {
+      console.log(
+        `[HISTORY_LOADING] Loading history for thread: ${currentThreadId}`
       );
+      setIsLoadingHistory(true);
+      const url =
+        currentThreadId === "default"
+          ? "/chat/history"
+          : `/threads/${currentThreadId}`;
+      fetch(url)
+        .then((res) => {
+          if (res.ok) {
+            return res.json();
+          }
+          if (res.status === 401) {
+            setCurrentUser(null);
+          }
+          console.error("Failed to fetch chat history, status:", res.status);
+          return [];
+        })
+        .then((data: unknown) => {
+          const messages = Array.isArray(data) ? (data as Message[]) : [];
+          console.log(
+            `[HISTORY_LOADED] Loaded ${messages.length} messages for thread: ${currentThreadId}`
+          );
+          setHistoryMessages(messages);
+        })
+        .catch((err) => {
+          console.error("Error fetching/parsing chat history:", err);
+          setHistoryMessages([]);
+        })
+        .finally(() => {
+          setIsLoadingHistory(false);
+        });
+    } else if (!enabled) {
+      setHistoryMessages(undefined);
+      setIsLoadingHistory(true);
     }
+  }, [enabled, currentUser?.userId, currentThreadId, setCurrentUser]);
 
-    if (!enabled && !isLoadingHistory) {
-      return null;
+  // Always call useAgentChat hook to avoid hook order violations
+  const agentChatResult = useAgentChat({
+    agent: agent,
+    initialMessages: historyMessages,
+    maxSteps: 5,
+    onError: (err) => {
+      console.error("Chat error:", err);
+      if (
+        err.message.includes("401") ||
+        err.message.toLowerCase().includes("unauthorized")
+      ) {
+        setCurrentUser(null);
+      }
+    },
+    onFinish: () => {
+      // Refresh threads in sidebar when conversation finishes
+      if (typeof (window as any).refreshThreads === "function") {
+        (window as any).refreshThreads();
+      }
+    },
+  });
+
+  // Use actual values when ready, fallback values when not
+  const {
+    messages: agentMessages,
+    input: agentInput,
+    handleInputChange: handleAgentInputChange,
+    handleSubmit: handleAgentSubmit,
+    addToolResult,
+    clearHistory,
+    isLoading: isAgentLoading,
+    stop,
+  } = canUseAgentChat
+      ? agentChatResult
+      : {
+        messages: [],
+        input: "",
+        handleInputChange: () => { },
+        handleSubmit: () => { },
+        addToolResult: () => { },
+        clearHistory: () => { },
+        isLoading: false,
+        stop: () => { },
+      };
+
+  // Component remounting via key prop handles thread switching
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, []);
+
+  useTaskMessageNotifications(agentMessages, currentThreadId);
+
+  useEffect(() => {
+    if (agentMessages.length > 0) {
+      scrollToBottom();
     }
+  }, [agentMessages, scrollToBottom]);
 
+  const [showDebug, setShowDebug] = useState(() => {
+    const saved = localStorage.getItem("showDebug");
+    return saved ? JSON.parse(saved) : false;
+  });
+  useEffect(() => {
+    localStorage.setItem("showDebug", JSON.stringify(showDebug));
+  }, [showDebug]);
+
+  const pendingToolCallConfirmation = agentMessages.some((m: Message) =>
+    m.parts?.some(
+      (part) =>
+        part.type === "tool-invocation" &&
+        part.toolInvocation.state === "call" &&
+        toolsRequiringConfirmation.includes(
+          part.toolInvocation.toolName as keyof typeof tools
+        )
+    )
+  );
+
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
+
+  const [textareaHeight, setTextareaHeight] = useState("auto");
+
+  // Show loading state in the chat area while keeping sidebar functional
+  const isLoadingAgent = enabled && (isLoadingHistory || !canUseAgentChat);
+
+  if (isLoadingAgent) {
     return (
       <>
         {/* ChatInterface's own controls (Debug, Clear History) */}
@@ -545,253 +566,321 @@ const ChatInterface: React.FC<{
               clearHistory();
             }}
             aria-label="Clear chat history"
+            disabled={true}
           >
             <Trash size={16} />
             <span className="ml-1 text-xs">Clear</span>
           </Button>
         </div>
 
-        {/* Messages */}
-        {/* Adjusted max-h for messages area, accounting for the ChatInterface controls bar + main app header + input form padding */}
-        {/* Approximate calculation: 100vh - app_header_h - chat_controls_h - input_form_h - misc_padding */}
-        {/* Let's assume app_header is ~3.5rem, chat_controls is ~3rem, input_form is ~4rem. Total ~10.5rem. Plus p-4 on main container (2rem). */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 max-h-[calc(100vh-12.5rem)]">
-          {agentMessages.length === 0 && !isAgentLoading && (
-            <div className="h-full flex items-center justify-center">
-              <Card className="p-6 max-w-md mx-auto bg-neutral-100 dark:bg-neutral-900">
-                <div className="text-center space-y-4">
-                  <div className="bg-[#F48120]/10 text-[#F48120] rounded-full p-3 inline-flex">
-                    <Robot size={24} />
-                  </div>
-                  <h3 className="font-semibold text-lg">
-                    {currentUser?.username
-                      ? `Welcome, ${currentUser.username}!`
-                      : "Welcome!"}
-                  </h3>
-                  <p className="text-muted-foreground text-sm">
-                    {historyMessages && historyMessages.length > 0
-                      ? "Continue your conversation or start a new one."
-                      : "Start a conversation with your AI assistant."}
-                  </p>
-                </div>
-              </Card>
-            </div>
-          )}
-
-          {agentMessages.map((m: Message, index) => {
-            const isUser = m.role === "user";
-            const showAvatar =
-              index === 0 || agentMessages[index - 1]?.role !== m.role;
-            const messageDate = m.createdAt
-              ? new Date(m.createdAt as any)
-              : new Date();
-
-            return (
-              <div key={m.id || `msg-${index}`}>
-                {showDebug && (
-                  <pre className="text-xs text-muted-foreground overflow-scroll">
-                    {JSON.stringify(m, null, 2)}
-                  </pre>
-                )}
-                <div
-                  className={`flex ${isUser ? "justify-end" : "justify-start"}`}
-                >
-                  <div
-                    className={`flex gap-2 max-w-[85%] ${isUser ? "flex-row-reverse" : "flex-row"
-                      }`}
-                  >
-                    {showAvatar && !isUser ? (
-                      <Avatar username={"AI"} />
-                    ) : (
-                      !isUser && <div className="w-8" />
-                    )}
-
-                    <div>
-                      <div>
-                        {m.parts?.map((part, i) => {
-                          if (part.type === "text") {
-                            return (
-                              <div key={i}>
-                                <Card
-                                  className={`p-3 rounded-md bg-neutral-100 dark:bg-neutral-900 ${isUser
-                                    ? "rounded-br-none"
-                                    : "rounded-bl-none border-assistant-border"
-                                    } ${part.text.startsWith("scheduled message")
-                                      ? "border-accent/50"
-                                      : ""
-                                    } relative`}
-                                >
-                                  {part.text.startsWith("scheduled message") && (
-                                    <span className="absolute -top-3 -left-2 text-base">
-                                      🕒
-                                    </span>
-                                  )}
-                                  <MemoizedMarkdown
-                                    id={`${m.id || `msg-${index}`}-${i}`}
-                                    content={part.text.replace(
-                                      /^scheduled message: /,
-                                      ""
-                                    )}
-                                  />
-                                </Card>
-                                <p
-                                  className={`text-xs text-muted-foreground mt-1 ${isUser ? "text-right" : "text-left"
-                                    }`}
-                                >
-                                  {formatTime(messageDate)}
-                                </p>
-                              </div>
-                            );
-                          }
-
-                          if (part.type === "tool-invocation") {
-                            const toolInvocation = part.toolInvocation;
-                            const toolCallId = toolInvocation.toolCallId;
-                            const needsConfirmation =
-                              toolsRequiringConfirmation.includes(
-                                toolInvocation.toolName as keyof typeof tools
-                              );
-
-                            if (showDebug) return null;
-
-                            return (
-                              <ToolInvocationCard
-                                key={`${toolCallId}-${i}`}
-                                toolInvocation={toolInvocation}
-                                toolCallId={toolCallId}
-                                needsConfirmation={needsConfirmation}
-                                addToolResult={addToolResult}
-                              />
-                            );
-                          }
-                          return null;
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-          {isAgentLoading && agentMessages.length === 0 && (
-            <div className="h-full flex items-center justify-center">
-              <p className="text-muted-foreground">Thinking...</p>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
+        {/* Loading state in messages area */}
+        <div className="flex-1 flex items-center justify-center p-4">
+          <p className="text-muted-foreground">
+            {isLoadingHistory
+              ? "Loading chat history..."
+              : "Connecting to chat agent..."}
+          </p>
         </div>
 
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!enabled || isAgentLoading) return;
-
-            // Check if this is the first message in a new thread
-            const isFirstMessage =
-              agentMessages.length === 0 &&
-              (!historyMessages || historyMessages.length === 0);
-
-            handleAgentSubmit(e, {
-              data: { annotations: { hello: "world" } },
-            });
-            setTextareaHeight("auto");
-
-            // If this is the first message, refresh threads after a short delay
-            if (isFirstMessage) {
-              setTimeout(() => {
-                if (typeof (window as any).refreshThreads === "function") {
-                  (window as any).refreshThreads();
-                }
-              }, 1000); // Give time for the message to be processed
-            }
-          }}
-          className="p-3 bg-neutral-50 absolute bottom-0 left-0 right-0 z-10 border-t border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900"
-        >
+        {/* Disabled input form */}
+        <form className="p-3 bg-neutral-50 absolute bottom-0 left-0 right-0 z-10 border-t border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900">
           <div className="flex items-center gap-2">
             <div className="flex-1 relative">
               <Textarea
-                disabled={
-                  !enabled || pendingToolCallConfirmation || isAgentLoading
-                }
-                placeholder={
-                  pendingToolCallConfirmation
-                    ? "Please respond to the tool confirmation above..."
-                    : "Send a message..."
-                }
+                disabled={true}
+                placeholder="Connecting to chat agent..."
                 className="flex w-full border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-base ring-offset-background placeholder:text-neutral-500 dark:placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300 dark:focus-visible:ring-neutral-700 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-neutral-900 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-2xl pb-10 dark:bg-neutral-900"
-                value={agentInput}
-                onChange={(e) => {
-                  handleAgentInputChange(e);
-                  e.target.style.height = "auto";
-                  e.target.style.height = `${e.target.scrollHeight}px`;
-                  setTextareaHeight(`${e.target.scrollHeight}px`);
-                }}
-                onKeyDown={(e) => {
-                  if (
-                    e.key === "Enter" &&
-                    !e.shiftKey &&
-                    !e.nativeEvent.isComposing &&
-                    enabled &&
-                    !isAgentLoading
-                  ) {
-                    e.preventDefault();
-
-                    // Check if this is the first message in a new thread
-                    const isFirstMessage =
-                      agentMessages.length === 0 &&
-                      (!historyMessages || historyMessages.length === 0);
-
-                    handleAgentSubmit(e as unknown as React.FormEvent);
-                    setTextareaHeight("auto");
-
-                    // If this is the first message, refresh threads after a short delay
-                    if (isFirstMessage) {
-                      setTimeout(() => {
-                        if (
-                          typeof (window as any).refreshThreads === "function"
-                        ) {
-                          (window as any).refreshThreads();
-                        }
-                      }, 1000);
-                    }
-                  }
-                }}
+                value=""
                 rows={2}
-                style={{ height: textareaHeight }}
               />
               <div className="absolute bottom-0 right-0 p-2 w-fit flex flex-row justify-end">
-                {isAgentLoading ? (
-                  <button
-                    type="button"
-                    onClick={stop}
-                    disabled={!enabled}
-                    className="inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full p-1.5 h-fit border border-neutral-200 dark:border-neutral-800"
-                    aria-label="Stop generation"
-                  >
-                    <Stop size={16} />
-                  </button>
-                ) : (
-                  <button
-                    type="submit"
-                    disabled={
-                      !enabled ||
-                      pendingToolCallConfirmation ||
-                      !agentInput.trim() ||
-                      isAgentLoading
-                    }
-                    className="inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full p-1.5 h-fit border border-neutral-200 dark:border-neutral-800"
-                    aria-label="Send message"
-                  >
-                    <PaperPlaneTilt size={16} />
-                  </button>
-                )}
+                <button
+                  type="button"
+                  disabled={true}
+                  className="inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full p-1.5 h-fit border border-neutral-200 dark:border-neutral-800"
+                  aria-label="Send message"
+                >
+                  <PaperPlaneTilt size={16} />
+                </button>
               </div>
             </div>
           </div>
         </form>
       </>
     );
-  };
+  }
+
+  if (!enabled && !isLoadingHistory) {
+    return null;
+  }
+
+  return (
+    <>
+      {/* ChatInterface's own controls (Debug, Clear History) */}
+      <div className="px-4 py-3 border-b border-neutral-300 dark:border-neutral-800 flex items-center justify-between sticky top-0 bg-background dark:bg-neutral-900 z-10">
+        <div className="flex items-center gap-2">
+          <Bug size={16} />
+          <Toggle
+            toggled={showDebug}
+            aria-label="Toggle debug mode"
+            onClick={() => setShowDebug((prev: boolean) => !prev)}
+          />
+          <span className="text-xs text-muted-foreground">Debug</span>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            clearHistory();
+          }}
+          aria-label="Clear chat history"
+        >
+          <Trash size={16} />
+          <span className="ml-1 text-xs">Clear</span>
+        </Button>
+      </div>
+
+      {/* Messages */}
+      {/* Adjusted max-h for messages area, accounting for the ChatInterface controls bar + main app header + input form padding */}
+      {/* Approximate calculation: 100vh - app_header_h - chat_controls_h - input_form_h - misc_padding */}
+      {/* Let's assume app_header is ~3.5rem, chat_controls is ~3rem, input_form is ~4rem. Total ~10.5rem. Plus p-4 on main container (2rem). */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 max-h-[calc(100vh-12.5rem)]">
+        {agentMessages.length === 0 && !isAgentLoading && (
+          <div className="h-full flex items-center justify-center">
+            <Card className="p-6 max-w-md mx-auto bg-neutral-100 dark:bg-neutral-900">
+              <div className="text-center space-y-4">
+                <div className="bg-[#F48120]/10 text-[#F48120] rounded-full p-3 inline-flex">
+                  <Robot size={24} />
+                </div>
+                <h3 className="font-semibold text-lg">
+                  {currentUser?.username
+                    ? `Welcome, ${currentUser.username}!`
+                    : "Welcome!"}
+                </h3>
+                <p className="text-muted-foreground text-sm">
+                  {historyMessages && historyMessages.length > 0
+                    ? "Continue your conversation or start a new one."
+                    : "Start a conversation with your AI assistant."}
+                </p>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {agentMessages.map((m: Message, index) => {
+          const isUser = m.role === "user";
+          const showAvatar =
+            index === 0 || agentMessages[index - 1]?.role !== m.role;
+          const messageDate = m.createdAt
+            ? new Date(m.createdAt as any)
+            : new Date();
+
+          return (
+            <div key={m.id || `msg-${index}`}>
+              {showDebug && (
+                <pre className="text-xs text-muted-foreground overflow-scroll">
+                  {JSON.stringify(m, null, 2)}
+                </pre>
+              )}
+              <div
+                className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+              >
+                <div
+                  className={`flex gap-2 max-w-[85%] ${isUser ? "flex-row-reverse" : "flex-row"
+                    }`}
+                >
+                  {showAvatar && !isUser ? (
+                    <Avatar username={"AI"} />
+                  ) : (
+                    !isUser && <div className="w-8" />
+                  )}
+
+                  <div>
+                    <div>
+                      {m.parts?.map((part, i) => {
+                        if (part.type === "text") {
+                          return (
+                            <div key={i}>
+                              <Card
+                                className={`p-3 rounded-md bg-neutral-100 dark:bg-neutral-900 ${isUser
+                                  ? "rounded-br-none"
+                                  : "rounded-bl-none border-assistant-border"
+                                  } ${part.text.startsWith("scheduled message")
+                                    ? "border-accent/50"
+                                    : ""
+                                  } relative`}
+                              >
+                                {part.text.startsWith("scheduled message") && (
+                                  <span className="absolute -top-3 -left-2 text-base">
+                                    🕒
+                                  </span>
+                                )}
+                                <MemoizedMarkdown
+                                  id={`${m.id || `msg-${index}`}-${i}`}
+                                  content={part.text.replace(
+                                    /^scheduled message: /,
+                                    ""
+                                  )}
+                                />
+                              </Card>
+                              <p
+                                className={`text-xs text-muted-foreground mt-1 ${isUser ? "text-right" : "text-left"
+                                  }`}
+                              >
+                                {formatTime(messageDate)}
+                              </p>
+                            </div>
+                          );
+                        }
+
+                        if (part.type === "tool-invocation") {
+                          const toolInvocation = part.toolInvocation;
+                          const toolCallId = toolInvocation.toolCallId;
+                          const needsConfirmation =
+                            toolsRequiringConfirmation.includes(
+                              toolInvocation.toolName as keyof typeof tools
+                            );
+
+                          if (showDebug) return null;
+
+                          return (
+                            <ToolInvocationCard
+                              key={`${toolCallId}-${i}`}
+                              toolInvocation={toolInvocation}
+                              toolCallId={toolCallId}
+                              needsConfirmation={needsConfirmation}
+                              addToolResult={addToolResult}
+                            />
+                          );
+                        }
+                        return null;
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        {isAgentLoading && agentMessages.length === 0 && (
+          <div className="h-full flex items-center justify-center">
+            <p className="text-muted-foreground">Thinking...</p>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!enabled || isAgentLoading) return;
+
+          // Check if this is the first message in a new thread
+          const isFirstMessage =
+            agentMessages.length === 0 &&
+            (!historyMessages || historyMessages.length === 0);
+
+          handleAgentSubmit(e, {
+            data: { annotations: { hello: "world" } },
+          });
+          setTextareaHeight("auto");
+
+          // If this is the first message, refresh threads after a short delay
+          if (isFirstMessage) {
+            setTimeout(() => {
+              if (typeof (window as any).refreshThreads === "function") {
+                (window as any).refreshThreads();
+              }
+            }, 1000); // Give time for the message to be processed
+          }
+        }}
+        className="p-3 bg-neutral-50 absolute bottom-0 left-0 right-0 z-10 border-t border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900"
+      >
+        <div className="flex items-center gap-2">
+          <div className="flex-1 relative">
+            <Textarea
+              disabled={
+                !enabled || pendingToolCallConfirmation || isAgentLoading
+              }
+              placeholder={
+                pendingToolCallConfirmation
+                  ? "Please respond to the tool confirmation above..."
+                  : "Send a message..."
+              }
+              className="flex w-full border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-base ring-offset-background placeholder:text-neutral-500 dark:placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300 dark:focus-visible:ring-neutral-700 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-neutral-900 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-2xl pb-10 dark:bg-neutral-900"
+              value={agentInput}
+              onChange={(e) => {
+                handleAgentInputChange(e);
+                e.target.style.height = "auto";
+                e.target.style.height = `${e.target.scrollHeight}px`;
+                setTextareaHeight(`${e.target.scrollHeight}px`);
+              }}
+              onKeyDown={(e) => {
+                if (
+                  e.key === "Enter" &&
+                  !e.shiftKey &&
+                  !e.nativeEvent.isComposing &&
+                  enabled &&
+                  !isAgentLoading
+                ) {
+                  e.preventDefault();
+
+                  // Check if this is the first message in a new thread
+                  const isFirstMessage =
+                    agentMessages.length === 0 &&
+                    (!historyMessages || historyMessages.length === 0);
+
+                  handleAgentSubmit(e as unknown as React.FormEvent);
+                  setTextareaHeight("auto");
+
+                  // If this is the first message, refresh threads after a short delay
+                  if (isFirstMessage) {
+                    setTimeout(() => {
+                      if (
+                        typeof (window as any).refreshThreads === "function"
+                      ) {
+                        (window as any).refreshThreads();
+                      }
+                    }, 1000);
+                  }
+                }
+              }}
+              rows={2}
+              style={{ height: textareaHeight }}
+            />
+            <div className="absolute bottom-0 right-0 p-2 w-fit flex flex-row justify-end">
+              {isAgentLoading ? (
+                <button
+                  type="button"
+                  onClick={stop}
+                  disabled={!enabled}
+                  className="inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full p-1.5 h-fit border border-neutral-200 dark:border-neutral-800"
+                  aria-label="Stop generation"
+                >
+                  <Stop size={16} />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={
+                    !enabled ||
+                    pendingToolCallConfirmation ||
+                    !agentInput.trim() ||
+                    isAgentLoading
+                  }
+                  className="inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full p-1.5 h-fit border border-neutral-200 dark:border-neutral-800"
+                  aria-label="Send message"
+                >
+                  <PaperPlaneTilt size={16} />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </form>
+    </>
+  );
+};
 
 export default function Chat() {
   const [theme, setTheme] = useState<"dark" | "light">(() => {
@@ -811,6 +900,422 @@ export default function Chat() {
     }
     return "default";
   });
+
+  // MCP Agent state management
+  const [currentAgents, setCurrentAgents] = useState<any[]>([]);
+  const [availableAgents, setAvailableAgents] = useState<any[]>([]);
+  const [mcpGroups, setMcpGroups] = useState<any[]>([]);
+  const [showAgentManagement, setShowAgentManagement] = useState(false);
+  const [showMCPServerLibrary, setShowMCPServerLibrary] = useState(false);
+  const [independentMCPServers, setIndependentMCPServers] = useState<any[]>([]);
+  const [currentMCPServers, setCurrentMCPServers] = useState<any[]>([]);
+
+  // Load available agents when user loads
+  useEffect(() => {
+    if (currentUser?.userId) {
+      loadAvailableAgents();
+      loadCurrentThreadAgents();
+      loadCurrentThreadMCPServers();
+      loadMcpGroups();
+      loadIndependentMCPServers();
+    } else {
+      setAvailableAgents([]);
+      setCurrentAgents([]);
+      setCurrentMCPServers([]);
+      setMcpGroups([]);
+      setIndependentMCPServers([]);
+    }
+  }, [currentUser?.userId, currentThreadId]);
+
+  const loadAvailableAgents = async () => {
+    try {
+      const response = await fetch("/api/agents", {
+        credentials: 'include'
+      });
+      if (response.ok) {
+        const data = await response.json() as any;
+        const agents = data.agents || [];
+        setAvailableAgents(Array.isArray(agents) ? agents : []);
+      } else {
+        setAvailableAgents([]);
+      }
+    } catch (error) {
+      console.error("Failed to load available agents:", error);
+      setAvailableAgents([]);
+    }
+  };
+
+  const loadCurrentThreadAgents = async () => {
+    try {
+      console.log(`[FRONTEND] Loading thread agents for threadId: ${currentThreadId}`);
+      const response = await fetch(`/api/threads/${currentThreadId}/agents`, {
+        credentials: 'include'
+      });
+      console.log(`[FRONTEND] Thread agents response status: ${response.status}`);
+      if (response.ok) {
+        const data = await response.json() as any;
+        console.log(`[FRONTEND] Thread agents response data:`, data);
+        const agents = data.agents || [];
+        console.log(`[FRONTEND] Setting current agents:`, agents);
+        setCurrentAgents(Array.isArray(agents) ? agents : []);
+      } else {
+        console.error(`[FRONTEND] Thread agents response not ok:`, response.status, response.statusText);
+        const errorText = await response.text();
+        console.error(`[FRONTEND] Thread agents error response:`, errorText);
+      }
+    } catch (error) {
+      console.error("Failed to load thread agents:", error);
+    }
+  };
+
+  const loadCurrentThreadMCPServers = async () => {
+    try {
+      console.log(`[FRONTEND] Loading thread MCP servers for threadId: ${currentThreadId}`);
+      const response = await fetch(`/api/threads/${currentThreadId}/mcp-servers`, {
+        credentials: 'include'
+      });
+      console.log(`[FRONTEND] Thread MCP servers response status: ${response.status}`);
+      if (response.ok) {
+        const data = await response.json() as any;
+        console.log(`[FRONTEND] Thread MCP servers response data:`, data);
+        const servers = data.servers || [];
+        console.log(`[FRONTEND] Setting current MCP servers:`, servers);
+        setCurrentMCPServers(Array.isArray(servers) ? servers : []);
+      } else {
+        console.error(`[FRONTEND] Thread MCP servers response not ok:`, response.status, response.statusText);
+        const errorText = await response.text();
+        console.error(`[FRONTEND] Thread MCP servers error response:`, errorText);
+      }
+    } catch (error) {
+      console.error("Failed to load thread MCP servers:", error);
+    }
+  };
+
+  const loadMcpGroups = async () => {
+    try {
+      console.log("Loading MCP groups from /api/mcp-groups...");
+      const response = await fetch("/api/mcp-groups", {
+        credentials: 'include'
+      });
+      console.log("MCP groups response status:", response.status);
+      if (response.ok) {
+        const data = await response.json() as any;
+        console.log("MCP groups raw data:", data);
+        const groups = data.groups || [];
+        console.log("MCP groups processed:", groups);
+        setMcpGroups(Array.isArray(groups) ? groups : []);
+      } else {
+        console.error("MCP groups response not ok:", response.status, response.statusText);
+        const errorText = await response.text();
+        console.error("MCP groups error response:", errorText);
+      }
+    } catch (error) {
+      console.error("Failed to load MCP groups:", error);
+    }
+  };
+
+  const handleAgentChange = async (agents: any[]) => {
+    console.log("Agent change requested:", agents);
+    console.log("Current agents:", currentAgents);
+
+    try {
+      // Find agents that were added (in new list but not in current)
+      const addedAgents = agents.filter(agent =>
+        !currentAgents.some(current => current.id === agent.id)
+      );
+
+      // Find agents that were removed (in current but not in new list)
+      const removedAgents = currentAgents.filter(current =>
+        !agents.some(agent => agent.id === current.id)
+      );
+
+      console.log("Agents to add:", addedAgents);
+      console.log("Agents to remove:", removedAgents);
+
+      // Add new agents
+      for (const agent of addedAgents) {
+        const response = await fetch(`/api/threads/${currentThreadId}/agents`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: 'include',
+          body: JSON.stringify({
+            agentId: agent.id,
+            role: "primary",
+            reason: "Added via agent selector"
+          }),
+        });
+        if (!response.ok) {
+          console.error("Failed to add agent:", response.status);
+          return;
+        }
+      }
+
+      // Remove agents
+      for (const agent of removedAgents) {
+        const response = await fetch(`/api/threads/${currentThreadId}/agents/${agent.id}`, {
+          method: "DELETE",
+          credentials: 'include'
+        });
+        if (!response.ok) {
+          console.error("Failed to remove agent:", response.status);
+          return;
+        }
+      }
+
+      // Update local state
+      setCurrentAgents(agents);
+      console.log("Agent change completed successfully");
+    } catch (error) {
+      console.error("Failed to update thread agents:", error);
+    }
+  };
+
+  const handleMCPServerChange = async (servers: any[]) => {
+    console.log("MCP server change requested:", servers);
+    console.log("Current MCP servers:", currentMCPServers);
+
+    try {
+      // Find servers that were added (in new list but not in current)
+      const addedServers = servers.filter(server =>
+        !currentMCPServers.some(current => current.id === server.id)
+      );
+
+      // Find servers that were removed (in current but not in new list)
+      const removedServers = currentMCPServers.filter(current =>
+        !servers.some(server => server.id === current.id)
+      );
+
+      console.log("MCP servers to add:", addedServers);
+      console.log("MCP servers to remove:", removedServers);
+
+      // Add new MCP servers
+      for (const server of addedServers) {
+        const response = await fetch(`/api/threads/${currentThreadId}/mcp-servers`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: 'include',
+          body: JSON.stringify({
+            serverId: server.id,
+            reason: "Added via server selector"
+          }),
+        });
+        if (!response.ok) {
+          console.error("Failed to add MCP server:", response.status);
+          return;
+        }
+      }
+
+      // Remove MCP servers
+      for (const server of removedServers) {
+        const response = await fetch(`/api/threads/${currentThreadId}/mcp-servers/${server.id}`, {
+          method: "DELETE",
+          credentials: 'include'
+        });
+        if (!response.ok) {
+          console.error("Failed to remove MCP server:", response.status);
+          return;
+        }
+      }
+
+      // Update local state
+      setCurrentMCPServers(servers);
+      console.log("MCP server change completed successfully");
+    } catch (error) {
+      console.error("Failed to update thread MCP servers:", error);
+    }
+  };
+
+  const handleCreateAgent = async (agentData: any) => {
+    try {
+      const response = await fetch("/api/agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: 'include',
+        body: JSON.stringify(agentData),
+      });
+      if (response.ok) {
+        loadAvailableAgents();
+      }
+    } catch (error) {
+      console.error("Failed to create agent:", error);
+    }
+  };
+
+  const handleUpdateAgent = async (agentId: string, updates: any) => {
+    try {
+      const response = await fetch(`/api/agents/${agentId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: 'include',
+        body: JSON.stringify(updates),
+      });
+      if (response.ok) {
+        loadAvailableAgents();
+        loadCurrentThreadAgents();
+        loadCurrentThreadMCPServers();
+      }
+    } catch (error) {
+      console.error("Failed to update agent:", error);
+    }
+  };
+
+  const handleDeleteAgent = async (agentId: string) => {
+    try {
+      const response = await fetch(`/api/agents/${agentId}`, {
+        method: "DELETE",
+        credentials: 'include'
+      });
+      if (response.ok) {
+        loadAvailableAgents();
+        loadCurrentThreadAgents();
+        loadCurrentThreadMCPServers();
+      }
+    } catch (error) {
+      console.error("Failed to delete agent:", error);
+    }
+  };
+
+  // MCP Server Management Functions
+  const handleCreateMCPServer = async (groupId: string, config: {
+    name: string;
+    serverUri: string;
+    transport: 'websocket' | 'sse';
+    authType: 'none' | 'api_key' | 'basic';
+    authConfig?: any;
+    isEnabled: boolean;
+  }) => {
+    try {
+      const response = await fetch('/api/mcp-servers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ groupId, ...config })
+      });
+      if (response.ok) {
+        loadAvailableAgents(); // Refresh to get updated MCP group info
+      }
+    } catch (error) {
+      console.error("Failed to create MCP server:", error);
+    }
+  };
+
+  const handleUpdateMCPServer = async (serverId: string, config: {
+    name: string;
+    serverUri: string;
+    transport: 'websocket' | 'sse';
+    authType: 'none' | 'api_key' | 'basic';
+    authConfig?: any;
+    isEnabled: boolean;
+  }) => {
+    try {
+      const response = await fetch(`/api/mcp-servers/${serverId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(config)
+      });
+      if (response.ok) {
+        loadAvailableAgents(); // Refresh to get updated MCP group info
+      }
+    } catch (error) {
+      console.error("Failed to update MCP server:", error);
+    }
+  };
+
+  const handleDeleteMCPServer = async (serverId: string) => {
+    try {
+      const response = await fetch(`/api/mcp-servers/${serverId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (response.ok) {
+        loadAvailableAgents(); // Refresh to get updated MCP group info
+      }
+    } catch (error) {
+      console.error("Failed to delete MCP server:", error);
+    }
+  };
+
+  // Independent MCP Server Management Functions
+  const loadIndependentMCPServers = async () => {
+    try {
+      const response = await fetch('/api/mcp-servers-independent', {
+        credentials: 'include'
+      });
+      if (response.ok) {
+        const data: any = await response.json();
+        setIndependentMCPServers(data.servers || []);
+      }
+    } catch (error) {
+      console.error("Failed to load independent MCP servers:", error);
+    }
+  };
+
+  const handleCreateIndependentMCPServer = async (serverConfig: any) => {
+    try {
+      const response = await fetch('/api/mcp-servers-independent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(serverConfig)
+      });
+      if (response.ok) {
+        loadIndependentMCPServers();
+      }
+    } catch (error) {
+      console.error("Failed to create independent MCP server:", error);
+    }
+  };
+
+  const handleUpdateIndependentMCPServer = async (serverId: string, serverConfig: any) => {
+    try {
+      const response = await fetch(`/api/mcp-servers-independent/${serverId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(serverConfig)
+      });
+      if (response.ok) {
+        loadIndependentMCPServers();
+      }
+    } catch (error) {
+      console.error("Failed to update independent MCP server:", error);
+    }
+  };
+
+  const handleDeleteIndependentMCPServer = async (serverId: string) => {
+    try {
+      const response = await fetch(`/api/mcp-servers-independent/${serverId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (response.ok) {
+        loadIndependentMCPServers();
+        loadAvailableAgents(); // Also refresh agents in case server was used in groups
+      }
+    } catch (error) {
+      console.error("Failed to delete independent MCP server:", error);
+    }
+  };
+
+  const handleTestIndependentMCPServer = async (serverId: string): Promise<{ success: boolean; message: string; tools?: string[] }> => {
+    try {
+      const response = await fetch(`/api/mcp-servers-independent/${serverId}/test`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      if (response.ok) {
+        const result = await response.json() as { success: boolean; message: string; tools?: string[] };
+        // Refresh servers to get updated status
+        loadIndependentMCPServers();
+        return result;
+      }
+      return { success: false, message: 'Test request failed' };
+    } catch (error) {
+      console.error("Failed to test independent MCP server:", error);
+      return { success: false, message: 'Test failed: ' + error };
+    }
+  };
   // Sidebar should be open on desktop by default, closed on mobile
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
     // Check if we're on desktop (this will be false during SSR, but that's ok)
@@ -836,6 +1341,8 @@ export default function Chat() {
       .then((data: any) => {
         if (data && data.username) {
           setCurrentUser(data);
+        } else {
+          setCurrentUser(null);
         }
       })
       .catch((error) => {
@@ -900,7 +1407,9 @@ export default function Chat() {
   };
 
   const handleThreadSelect = (threadId: string) => {
-    console.log(`[THREAD_SELECT] Switching from "${currentThreadId}" to "${threadId}"`);
+    console.log(
+      `[THREAD_SELECT] Switching from "${currentThreadId}" to "${threadId}"`
+    );
     setCurrentThreadId(threadId);
     setIsSidebarOpen(false); // Close sidebar on mobile after selection
   };
@@ -961,7 +1470,7 @@ export default function Chat() {
   };
 
   // agent and useAgentChat hooks are now inside ChatInterface
-  // Other states like pendingToolCallConfirmation, formatTime are also moved to ChatInterface
+  // Other states like pendingToolCallConfirmation, formatTime are moved to ChatInterface
 
   return (
     <div className="h-[100vh] w-full flex bg-fixed overflow-hidden">
@@ -995,7 +1504,20 @@ export default function Chat() {
                   <List size={20} />
                 </Button>
               )}
-              <h1 className="text-xl font-semibold">Chat Agent</h1>
+              <h1 className="text-xl font-semibold">AI Chat</h1>
+              {currentUser && (
+                <AgentQuickSelector
+                  threadId={currentThreadId}
+                  currentAgents={currentAgents}
+                  availableAgents={availableAgents}
+                  availableMCPServers={independentMCPServers}
+                  currentMCPServers={currentMCPServers}
+                  onAgentChange={handleAgentChange}
+                  onMCPServerChange={handleMCPServerChange}
+                  onManageAgents={() => setShowAgentManagement(true)}
+                  onManageMCPServers={() => setShowMCPServerLibrary(true)}
+                />
+              )}
             </div>
             {/* Theme and other controls can be moved here if they are app-level */}
             {/* Or keep them in ChatInterface if they are chat-specific */}
@@ -1094,6 +1616,43 @@ export default function Chat() {
           )}
         </div>
       </div>
+
+      {/* Agent Management Modal */}
+      {showAgentManagement && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-neutral-900 rounded-lg w-full max-w-4xl max-h-[90vh] overflow-hidden">
+            <AgentManagementPanel
+              isOpen={showAgentManagement}
+              onClose={() => setShowAgentManagement(false)}
+              agents={availableAgents}
+              mcpGroups={mcpGroups}
+              onCreateAgent={handleCreateAgent}
+              onUpdateAgent={handleUpdateAgent}
+              onDeleteAgent={handleDeleteAgent}
+              onCreateMCPServer={handleCreateMCPServer}
+              onUpdateMCPServer={handleUpdateMCPServer}
+              onDeleteMCPServer={handleDeleteMCPServer}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* MCP Server Library Modal */}
+      {showMCPServerLibrary && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-neutral-900 rounded-lg w-full max-w-6xl max-h-[90vh] overflow-hidden">
+            <MCPServerLibrary
+              isOpen={showMCPServerLibrary}
+              onClose={() => setShowMCPServerLibrary(false)}
+              servers={independentMCPServers}
+              onCreateServer={handleCreateIndependentMCPServer}
+              onUpdateServer={handleUpdateIndependentMCPServer}
+              onDeleteServer={handleDeleteIndependentMCPServer}
+              onTestServer={handleTestIndependentMCPServer}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
