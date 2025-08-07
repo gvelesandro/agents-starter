@@ -1230,6 +1230,8 @@ async function testServerConnection(
 
         // Step 1: Initial SSE handshake with timeout (for local servers)
         console.log(`Step 1: Making initial request to: ${serverUrl}`);
+        console.log(`Request headers: Accept: text/event-stream, Cache-Control: no-cache`);
+        
         const handshakeResponse = await Promise.race([
             fetch(serverUrl, {
                 method: 'GET',
@@ -1242,11 +1244,17 @@ async function testServerConnection(
                 }
             }),
             new Promise<Response>((_, reject) =>
-                setTimeout(() => reject(new Error("Handshake timeout after 5 seconds")), 5000)
+                setTimeout(() => {
+                    console.error(`TIMEOUT: Handshake timeout after 5 seconds for ${serverUrl}`);
+                    reject(new Error("Handshake timeout after 5 seconds"));
+                }, 5000)
             )
         ]);
 
-        console.log(`Handshake response: ${handshakeResponse.status} ${handshakeResponse.statusText}`);
+        console.log(`Handshake response status: ${handshakeResponse.status} ${handshakeResponse.statusText}`);
+        console.log(`Content-Type: ${handshakeResponse.headers.get('Content-Type')}`);
+        console.log(`Cache-Control: ${handshakeResponse.headers.get('Cache-Control')}`);
+        console.log(`Access-Control-Allow-Origin: ${handshakeResponse.headers.get('Access-Control-Allow-Origin')}`);
 
         if (!handshakeResponse.ok) {
             if (handshakeResponse.status === 406) {
@@ -1270,8 +1278,36 @@ async function testServerConnection(
             }
         }
 
-        // Step 2: Parse SSE response for session endpoint
-        const responseText = await handshakeResponse.text();
+        // Step 2: Handle SSE response properly (don't read the full stream)
+        console.log(`Step 2: Handling SSE response...`);
+        
+        // For SSE streams, we don't want to read the entire response as it will hang
+        // Instead, check if we got a successful SSE response and close the connection
+        const contentType = handshakeResponse.headers.get('Content-Type') || '';
+        if (contentType.includes('text/event-stream')) {
+            console.log(`✅ Received proper SSE content type: ${contentType}`);
+            
+            // The fact that we got a 200 response with the right content type means the server is working
+            // We don't need to read the stream body for testing purposes
+            return {
+                success: true,
+                message: `✅ Local MCP server is reachable and responding with SSE stream (Status: ${handshakeResponse.status}).`,
+                tools: []
+            };
+        }
+        
+        // If it's not an SSE stream, try to read a limited amount of the response
+        const responseText = await Promise.race([
+            handshakeResponse.text(),
+            new Promise<string>((_, reject) =>
+                setTimeout(() => {
+                    console.error(`TIMEOUT: Response reading timeout after 2 seconds`);
+                    reject(new Error("Response reading timeout after 2 seconds"));
+                }, 2000)
+            )
+        ]);
+        
+        console.log(`Response text length: ${responseText.length}`);
         console.log(`Response text (first 200 chars): ${responseText.substring(0, 200)}`);
 
         // Look for session endpoint in SSE data

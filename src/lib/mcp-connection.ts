@@ -11,7 +11,7 @@ import type {
 const MCP_RELIABILITY_CONFIG = {
     maxRetries: 3,
     retryDelayMs: 1000,
-    timeoutMs: 10000,
+    timeoutMs: 5000, // Reduced timeout to see errors faster
     fallbackMessage: "MCP server temporarily unavailable",
 };
 
@@ -39,6 +39,49 @@ class MCPConnectionManager {
         this.connections.set(serverConfig.id, connection);
 
         try {
+            console.log(`[MCP] Starting connection to ${serverConfig.name}...`);
+            console.log(`[MCP] Browser environment:`, typeof window !== 'undefined');
+            console.log(`[MCP] URL validation:`, serverConfig.url);
+            
+            // Validate URL
+            try {
+                new URL(serverConfig.url);
+                console.log(`[MCP] URL is valid`);
+            } catch (urlError) {
+                console.error(`[MCP] Invalid URL:`, urlError);
+                throw new Error(`Invalid server URL: ${serverConfig.url}`);
+            }
+
+            // Test basic connectivity first (browser only)
+            if (typeof window !== 'undefined' && serverConfig.transport === 'sse') {
+                console.log(`[MCP] Testing basic connectivity to ${serverConfig.url}...`);
+                try {
+                    // Create manual timeout for better browser compatibility
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => {
+                        controller.abort();
+                    }, 3000);
+
+                    const testResponse = await fetch(serverConfig.url, {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'text/event-stream',
+                            'Cache-Control': 'no-cache'
+                        },
+                        signal: controller.signal
+                    });
+                    
+                    clearTimeout(timeoutId);
+                    console.log(`[MCP] Basic connectivity test result:`, testResponse.status, testResponse.statusText);
+                    
+                    // Don't read the response body as it's an SSE stream
+                } catch (fetchError) {
+                    console.error(`[MCP] Basic connectivity test failed:`, fetchError);
+                    const errorMessage = fetchError instanceof Error ? fetchError.message : String(fetchError);
+                    throw new Error(`Cannot reach server: ${errorMessage}`);
+                }
+            }
+
             // Create appropriate transport based on server config
             let transport: WebSocketClientTransport | SSEClientTransport;
             let headers: Record<string, string> = {};
@@ -64,13 +107,25 @@ class MCPConnectionManager {
             }
 
             if (serverConfig.transport === "websocket") {
+                console.log(`[MCP] Creating WebSocket transport for ${serverConfig.url}`);
                 transport = new WebSocketClientTransport(new URL(serverConfig.url));
                 // Note: WebSocket auth typically handled via query params or subprotocols
             } else {
-                transport = new SSEClientTransport(new URL(serverConfig.url));
-                // SSE can use headers for auth
-                if (Object.keys(headers).length > 0) {
-                    (transport as any).headers = headers;
+                console.log(`[MCP] Creating SSE transport for ${serverConfig.url}`);
+                console.log(`[MCP] Headers:`, headers);
+                
+                try {
+                    transport = new SSEClientTransport(new URL(serverConfig.url));
+                    console.log(`[MCP] SSE transport created successfully`);
+                    
+                    // SSE can use headers for auth
+                    if (Object.keys(headers).length > 0) {
+                        (transport as any).headers = headers;
+                        console.log(`[MCP] Headers applied to SSE transport`);
+                    }
+                } catch (transportError) {
+                    console.error(`[MCP] Failed to create SSE transport:`, transportError);
+                    throw transportError;
                 }
             }
 
@@ -86,7 +141,33 @@ class MCPConnectionManager {
                 }
             );
 
-            await client.connect(transport);
+            console.log(`[MCP] Connecting to ${serverConfig.name} at ${serverConfig.url}...`);
+            console.log(`[MCP] Transport type: ${serverConfig.transport}`);
+            console.log(`[MCP] Auth type: ${serverConfig.auth.type}`);
+
+            // Add timeout wrapper for the connection
+            console.log(`[MCP] Starting MCP client connection...`);
+            const connectPromise = client.connect(transport);
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => {
+                    console.error(`[MCP] Connection timeout after ${MCP_RELIABILITY_CONFIG.timeoutMs}ms for ${serverConfig.name}`);
+                    reject(new Error(`Connection timeout after ${MCP_RELIABILITY_CONFIG.timeoutMs}ms`));
+                }, MCP_RELIABILITY_CONFIG.timeoutMs);
+            });
+
+            // Add progress tracking
+            connectPromise
+                .then(() => {
+                    console.log(`[MCP] Connect promise resolved successfully`);
+                })
+                .catch(error => {
+                    console.error(`[MCP] Connect promise rejected:`, error);
+                });
+
+            console.log(`[MCP] Waiting for connection to complete...`);
+            await Promise.race([connectPromise, timeoutPromise]);
+
+            console.log(`[MCP] Connected to ${serverConfig.name}, discovering tools...`);
 
             // Discover available tools
             const toolsResult = await client.listTools();
@@ -111,9 +192,17 @@ class MCPConnectionManager {
             return connection;
         } catch (error) {
             console.error(
-                `Failed to connect to MCP server ${serverConfig.name}:`,
+                `[MCP] Failed to connect to MCP server ${serverConfig.name} (${serverConfig.url}):`,
                 error
             );
+
+            // Log additional details for debugging
+            if (error instanceof Error) {
+                console.error(`[MCP] Error name: ${error.name}`);
+                console.error(`[MCP] Error message: ${error.message}`);
+                console.error(`[MCP] Error stack:`, error.stack);
+            }
+
             connection.status = "error";
             connection.lastError =
                 error instanceof Error ? error.message : String(error);
