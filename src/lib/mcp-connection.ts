@@ -431,7 +431,7 @@ export async function getMCPToolsForThread(
     db?: any // D1Database instance
 ): Promise<Record<string, any>> {
     const mcpTools: Record<string, any> = {};
-    
+
     if (!db) {
         console.warn("[MCP] Database not available, cannot load thread-specific MCP tools");
         return mcpTools;
@@ -439,7 +439,7 @@ export async function getMCPToolsForThread(
 
     try {
         console.log(`[MCP] Loading database-driven MCP tools for thread: ${threadId}`);
-        
+
         // Get active agents for this thread and their MCP groups
         const threadAgents = await db.prepare(`
             SELECT DISTINCT a.id, a.name, amg.group_id, a.user_id
@@ -468,10 +468,10 @@ export async function getMCPToolsForThread(
 
         // Get MCP servers from agent groups
         const allServerConfigs = [...threadMCPServers.results, ...agentMCPServers.results];
-        
+
         if (threadAgents.results.length > 0) {
             const groupIds = Array.from(new Set(threadAgents.results.map((agent: any) => agent.group_id)));
-            
+
             if (groupIds.length > 0) {
                 const groupServers = await db.prepare(`
                     SELECT ms.*, ms.id as server_id, ms.name as server_name, 
@@ -481,7 +481,7 @@ export async function getMCPToolsForThread(
                     FROM mcp_servers ms
                     WHERE ms.group_id IN (${groupIds.map(() => '?').join(',')}) AND ms.is_enabled = TRUE
                 `).bind(...groupIds).all();
-                
+
                 allServerConfigs.push(...groupServers.results);
             }
         }
@@ -510,16 +510,16 @@ export async function getMCPToolsForThread(
                 };
 
                 console.log(`[MCP] Attempting to connect to server: ${serverConfig.name} (${serverConfig.url})`);
-                
+
                 const connection = await mcpConnectionManager.connectToServer(serverConfig);
-                
+
                 if (connection.status === "connected" && connection.tools.length > 0) {
                     console.log(`[MCP] Connected to ${serverConfig.name}, found ${connection.tools.length} tools`);
-                    
+
                     // Convert MCP tools to the format expected by the AI system
                     for (const mcpTool of connection.tools) {
                         const toolName = `mcp_${mcpTool.serverId}_${mcpTool.name}`;
-                        
+
                         // Convert JSON schema to Zod schema safely
                         let zodSchema = z.object({});
                         try {
@@ -528,7 +528,7 @@ export async function getMCPToolsForThread(
                                 for (const [key, prop] of Object.entries(mcpTool.schema.properties)) {
                                     const propDef = prop as any;
                                     let zodType: any = z.string(); // default to string
-                                    
+
                                     switch (propDef.type) {
                                         case 'string':
                                             zodType = z.string();
@@ -548,12 +548,12 @@ export async function getMCPToolsForThread(
                                         default:
                                             zodType = z.any();
                                     }
-                                    
+
                                     // Add description if available
                                     if (propDef.description) {
                                         zodType = zodType.describe(propDef.description);
                                     }
-                                    
+
                                     properties[key] = zodType;
                                 }
                                 zodSchema = z.object(properties);
@@ -562,7 +562,7 @@ export async function getMCPToolsForThread(
                             console.warn(`[MCP] Could not convert schema for tool ${toolName}:`, schemaError);
                             zodSchema = z.object({}); // fallback to empty schema
                         }
-                        
+
                         // Create proper tool objects using the AI tool function
                         if (mcpTool.requiresConfirmation) {
                             // Tool requires confirmation (no execute function)
@@ -597,7 +597,7 @@ export async function getMCPToolsForThread(
                                 },
                             });
                         }
-                        
+
                         console.log(`[MCP] Added tool: ${toolName} - ${mcpTool.description}`);
                     }
                 } else {
@@ -624,7 +624,7 @@ export async function getMCPExecutionsForThread(
     db?: any // D1Database instance
 ): Promise<Record<string, any>> {
     const mcpExecutions: Record<string, any> = {};
-    
+
     if (!db) {
         console.warn("[MCP] Database not available, cannot load thread-specific MCP executions");
         return mcpExecutions;
@@ -632,7 +632,7 @@ export async function getMCPExecutionsForThread(
 
     try {
         console.log(`[MCP] Loading database-driven MCP executions for thread: ${threadId}`);
-        
+
         // Similar query logic as above, but focus on confirmation-required tools
         const threadAgents = await db.prepare(`
             SELECT DISTINCT a.id, a.name, amg.group_id, a.user_id
@@ -649,16 +649,16 @@ export async function getMCPExecutionsForThread(
         `).bind(threadId).all();
 
         const allServerConfigs = [...threadMCPServers.results];
-        
+
         if (threadAgents.results.length > 0) {
             const groupIds = Array.from(new Set(threadAgents.results.map((agent: any) => agent.group_id)));
-            
+
             if (groupIds.length > 0) {
                 const groupServers = await db.prepare(`
                     SELECT ms.* FROM mcp_servers ms
                     WHERE ms.group_id IN (${groupIds.map(() => '?').join(',')}) AND ms.is_enabled = TRUE
                 `).bind(...groupIds).all();
-                
+
                 allServerConfigs.push(...groupServers.results);
             }
         }
@@ -668,12 +668,12 @@ export async function getMCPExecutionsForThread(
             try {
                 const serverId = serverRow.id || serverRow.server_id;
                 const connection = mcpConnectionManager.getConnectionStatus(serverId);
-                
+
                 if (connection?.status === "connected") {
                     for (const tool of connection.tools) {
                         if (tool.requiresConfirmation) {
                             const executionName = `mcp_${tool.serverId}_${tool.name}`;
-                            
+
                             mcpExecutions[executionName] = async (parameters: any) => {
                                 try {
                                     const execution = await mcpConnectionManager.executeTool(
@@ -693,7 +693,7 @@ export async function getMCPExecutionsForThread(
                                     throw error;
                                 }
                             };
-                            
+
                             console.log(`[MCP] Added execution handler: ${executionName}`);
                         }
                     }

@@ -3,10 +3,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 
 async function testMCPConnection() {
-    console.log("Testing MCP connection to localhost:64590...");
+    console.log("Testing MCP connection to localhost:56460...");
     
     try {
-        const transport = new SSEClientTransport(new URL("http://localhost:64590/sse"));
+        const transport = new SSEClientTransport(new URL("http://localhost:56460/sse"));
         
         const client = new Client(
             {

@@ -167,11 +167,11 @@ async function getMCPToolsForThread(threadId: string): Promise<Record<string, an
     // This will be enhanced when we have the database context available
 
     // Check if we have any test MCP connections available
-    // The math server from the test file should be at localhost:64590
+    // The math server is running at localhost:56460
     const testMathServerConfig = {
       id: "test-math-server",
       name: "Test Math Server", 
-      url: "http://localhost:64590/sse",
+      url: "http://localhost:56460/sse",
       transport: "sse" as const,
       userId: "demo-user",
       groupId: "test-group",

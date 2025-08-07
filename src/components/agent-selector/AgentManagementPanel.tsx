@@ -82,7 +82,7 @@ export const AgentManagementPanel: React.FC<AgentManagementPanelProps> = ({
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        
+
         console.log('Submitting agent form with data:', formData);
 
         if (editingAgent) {
