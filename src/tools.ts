@@ -142,153 +142,116 @@ export const executions = {
  */
 
 /**
- * Get MCP tools for a specific thread based on its active agents
- * This queries the database and MCP connections to provide available tools
+ * Get MCP tools for a specific thread based on its active agents and assigned MCP servers
+ * This queries the database and establishes MCP connections to provide real available tools
  */
 async function getMCPToolsForThread(threadId: string): Promise<Record<string, any>> {
   const mcpTools: Record<string, any> = {};
 
   try {
-    // In a real implementation, this would query the database to get:
-    // 1. Active agents for the thread
-    // 2. MCP groups associated with those agents
-    // 3. MCP servers in those groups
-    // 4. Available tools from those servers
+    console.log(`[MCP] Loading MCP tools for thread: ${threadId}`);
 
-    // For now, simulate with basic math tools since we have the MCP math server available
-    console.log(`Loading MCP tools for thread: ${threadId}`);
+    // Since we're in a server-side context, we need access to the database
+    // This will be called from the server context where env.DB is available
+    // For now, we'll return tools based on connected MCP servers in the connection manager
 
-    // Simulate MCP math tools that would come from the math-server
-    const mathAdd = tool({
-      description: "Add two numbers together using MCP math server",
-      parameters: z.object({
-        a: z.number().describe("First number"),
-        b: z.number().describe("Second number")
-      }),
-      execute: async ({ a, b }) => {
-        console.log(`MCP Math: Adding ${a} + ${b}`);
-        // In real implementation, this would call the MCP server
-        // For now, simulate the response
-        return `${a} + ${b} = ${a + b} (via MCP Math Server)`;
-      },
-    });
+    // Get all available MCP server configs and their connections
+    // In a real implementation, we would:
+    // 1. Query thread_agents to get active agents for this thread
+    // 2. Query agent_mcp_groups to get MCP groups for those agents  
+    // 3. Query mcp_servers to get servers in those groups
+    // 4. Query thread_mcp_servers to get directly assigned MCP servers
+    // 5. Connect to those servers and get their tools
 
-    const mathCalculate = tool({
-      description: "Perform mathematical calculations using MCP math server",
-      parameters: z.object({
-        operation: z.enum(["add", "subtract", "multiply", "divide"]).describe("Mathematical operation"),
-        a: z.number().describe("First number"),
-        b: z.number().describe("Second number")
-      }),
-      execute: async ({ operation, a, b }) => {
-        console.log(`MCP Math: ${operation} ${a} and ${b}`);
-        let result: number;
-        switch (operation) {
-          case "add":
-            result = a + b;
-            break;
-          case "subtract":
-            result = a - b;
-            break;
-          case "multiply":
-            result = a * b;
-            break;
-          case "divide":
-            if (b === 0) return "Error: Division by zero";
-            result = a / b;
-            break;
+    // For now, we'll work with any connected servers in the connection manager
+    // This will be enhanced when we have the database context available
+
+    // Check if we have any test MCP connections available
+    // The math server from the test file should be at localhost:64590
+    const testMathServerConfig = {
+      id: "test-math-server",
+      name: "Test Math Server", 
+      url: "http://localhost:64590/sse",
+      transport: "sse" as const,
+      userId: "demo-user",
+      groupId: "test-group",
+      auth: { type: "none" as const },
+      status: "disconnected" as const,
+      isEnabled: true,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    try {
+      // Try to connect to the math server if available
+      const connection = await mcpConnectionManager.connectToServer(testMathServerConfig);
+      
+      if (connection.status === "connected" && connection.tools.length > 0) {
+        console.log(`[MCP] Connected to ${testMathServerConfig.name}, found ${connection.tools.length} tools`);
+        
+        // Convert MCP tools to the format expected by the AI system
+        for (const mcpTool of connection.tools) {
+          const toolName = `mcp_${mcpTool.serverId}_${mcpTool.name}`;
+          mcpTools[toolName] = createMCPToolWrapper(mcpTool);
+          console.log(`[MCP] Added tool: ${toolName} - ${mcpTool.description}`);
         }
-        return `${a} ${operation} ${b} = ${result} (via MCP Math Server)`;
-      },
-    });
+      }
+    } catch (error) {
+      console.log(`[MCP] Could not connect to test math server: ${error}`);
+      // This is expected if the server isn't running, continue without it
+    }
 
-    // Simulate GitHub MCP tools that would come from the GitHub MCP server
-    const githubGetRepository = tool({
-      description: "Get information about a GitHub repository using MCP GitHub server",
-      parameters: z.object({
-        owner: z.string().describe("Repository owner/organization"),
-        repo: z.string().describe("Repository name")
-      }),
-      execute: async ({ owner, repo }) => {
-        console.log(`MCP GitHub: Getting repository ${owner}/${repo}`);
-        // In real implementation, this would call the MCP GitHub server
-        // For now, simulate the response
-        return `Repository ${owner}/${repo} information:
-- Stars: 1,234
-- Language: TypeScript
-- Description: An awesome repository
-- Last updated: 2 days ago
-(via MCP GitHub Server)`;
-      },
-    });
+    // TODO: Implement real database integration
+    // This would look something like:
+    /*
+    if (env?.DB) {
+      // Get thread agents and their MCP groups
+      const threadAgents = await env.DB.prepare(`
+        SELECT DISTINCT a.id, a.name, amg.group_id
+        FROM thread_agents ta
+        JOIN agents a ON ta.agent_id = a.id  
+        JOIN agent_mcp_groups amg ON a.id = amg.agent_id
+        WHERE ta.thread_id = ? AND ta.is_active = TRUE
+      `).bind(threadId).all();
 
-    const githubListActions = tool({
-      description: "List GitHub Actions workflows for a repository using MCP GitHub server",
-      parameters: z.object({
-        owner: z.string().describe("Repository owner/organization"),
-        repo: z.string().describe("Repository name")
-      }),
-      execute: async ({ owner, repo }) => {
-        console.log(`MCP GitHub: Listing Actions for ${owner}/${repo}`);
-        // In real implementation, this would call the MCP GitHub server
-        // For now, simulate the response
-        return `GitHub Actions workflows for ${owner}/${repo}:
-1. CI/CD Pipeline (.github/workflows/ci.yml)
-   - Status: ✅ Passing
-   - Last run: 1 hour ago
-   - Trigger: push, pull_request
+      // Get directly assigned MCP servers for this thread
+      const threadMCPServers = await env.DB.prepare(`
+        SELECT mis.* FROM thread_mcp_servers tms
+        JOIN mcp_servers_independent mis ON tms.server_id = mis.id
+        WHERE tms.thread_id = ? AND tms.is_active = TRUE
+      `).bind(threadId).all();
 
-2. Deploy to Production (.github/workflows/deploy.yml)
-   - Status: ✅ Passing  
-   - Last run: 3 hours ago
-   - Trigger: push to main
-
-3. Code Quality Check (.github/workflows/quality.yml)
-   - Status: ✅ Passing
-   - Last run: 2 hours ago
-   - Trigger: pull_request
-
-(via MCP GitHub Server)`;
-      },
-    });
-
-    const githubTriggerAction = tool({
-      description: "Trigger a GitHub Actions workflow using MCP GitHub server",
-      parameters: z.object({
-        owner: z.string().describe("Repository owner/organization"),
-        repo: z.string().describe("Repository name"),
-        workflow: z.string().describe("Workflow file name or ID"),
-        ref: z.string().optional().describe("Git reference (branch/tag), defaults to main")
-      }),
-      execute: async ({ owner, repo, workflow, ref = "main" }) => {
-        console.log(`MCP GitHub: Triggering workflow ${workflow} for ${owner}/${repo} on ${ref}`);
-        // In real implementation, this would call the MCP GitHub server
-        // For now, simulate the response
-        return `✅ Successfully triggered GitHub Actions workflow!
-
-Repository: ${owner}/${repo}
-Workflow: ${workflow}
-Branch/Ref: ${ref}
-Run ID: #${Math.floor(Math.random() * 10000)}
-Status: Queued
-View: https://github.com/${owner}/${repo}/actions
-
-The workflow has been queued and will start running shortly.
-(via MCP GitHub Server)`;
-      },
-    });
-
-    // Add the MCP tools with prefixed names to avoid conflicts
-    // mcpTools["mcpMathAdd"] = mathAdd;
-    // mcpTools["mcpMathCalculate"] = mathCalculate;
-    // mcpTools["mcpGithubGetRepository"] = githubGetRepository;
-    // mcpTools["mcpGithubListActions"] = githubListActions;
-    // mcpTools["mcpGithubTriggerAction"] = githubTriggerAction;
+      // Get MCP servers from agent groups
+      const groupIds = threadAgents.results.map(agent => agent.group_id);
+      if (groupIds.length > 0) {
+        const groupServers = await env.DB.prepare(`
+          SELECT ms.* FROM mcp_servers ms
+          WHERE ms.group_id IN (${groupIds.map(() => '?').join(',')}) AND ms.is_enabled = TRUE
+        `).bind(...groupIds).all();
+        
+        // Connect to all servers and collect their tools
+        for (const serverConfig of [...threadMCPServers.results, ...groupServers.results]) {
+          try {
+            const connection = await mcpConnectionManager.connectToServer(serverConfig);
+            if (connection.status === "connected") {
+              for (const mcpTool of connection.tools) {
+                const toolName = `mcp_${mcpTool.serverId}_${mcpTool.name}`;
+                mcpTools[toolName] = createMCPToolWrapper(mcpTool);
+              }
+            }
+          } catch (error) {
+            console.error(`Failed to connect to MCP server ${serverConfig.name}:`, error);
+          }
+        }
+      }
+    }
+    */
 
   } catch (error) {
-    console.error("Error loading MCP tools:", error);
+    console.error("[MCP] Error loading MCP tools:", error);
   }
 
+  console.log(`[MCP] Loaded ${Object.keys(mcpTools).length} MCP tools for thread ${threadId}`);
   return mcpTools;
 }
 
@@ -297,20 +260,33 @@ The workflow has been queued and will start running shortly.
  * This will be called by the agent system to provide all available tools
  */
 export async function getCombinedToolsForThread(
-  threadId: string
+  threadId: string,
+  db?: any // D1Database instance
 ): Promise<Record<string, any>> {
   // Start with built-in tools
   const combinedTools = { ...tools };
 
   try {
-    // Get MCP tools based on thread's active agents
-    const mcpTools = await getMCPToolsForThread(threadId);
+    // Get MCP tools based on thread's active agents and assigned servers
+    let mcpTools: Record<string, any> = {};
+    
+    if (db) {
+      // Use database-aware version from mcp-connection.ts
+      mcpTools = await import('./lib/mcp-connection').then(module => 
+        module.getMCPToolsForThread(threadId, db)
+      );
+    } else {
+      // Fallback to local implementation for threads without database context
+      mcpTools = await getMCPToolsForThread(threadId);
+    }
+    
     Object.assign(combinedTools, mcpTools);
   } catch (error) {
     console.error("Error loading MCP tools for thread:", error);
     // Continue with built-in tools only if MCP fails
   }
 
+  console.log(`[TOOLS] Combined tools for thread ${threadId}: ${Object.keys(combinedTools).length} tools`);
   return combinedTools;
 }
 
@@ -319,39 +295,82 @@ export async function getCombinedToolsForThread(
  * This includes both confirmation-required and auto-execute functions
  */
 export async function getCombinedExecutionsForThread(
-  threadId: string
+  threadId: string,
+  db?: any // D1Database instance  
 ): Promise<Record<string, any>> {
   // Start with built-in executions
   const combinedExecutions = { ...executions };
 
   try {
-    // Get MCP executions based on thread's active agents
-    const mcpExecutions = await getMCPExecutionsForThread(threadId);
+    // Get MCP executions based on thread's active agents and assigned servers
+    let mcpExecutions: Record<string, any> = {};
+    
+    if (db) {
+      // Use database-aware version from mcp-connection.ts
+      mcpExecutions = await import('./lib/mcp-connection').then(module =>
+        module.getMCPExecutionsForThread(threadId, db)
+      );
+    } else {
+      // Fallback to local implementation
+      mcpExecutions = await getMCPExecutionsForThread(threadId);
+    }
+    
     Object.assign(combinedExecutions, mcpExecutions);
   } catch (error) {
     console.error("Error loading MCP executions for thread:", error);
     // Continue with built-in executions only if MCP fails
   }
 
+  console.log(`[TOOLS] Combined executions for thread ${threadId}: ${Object.keys(combinedExecutions).length} handlers`);
   return combinedExecutions;
 }
 
 /**
  * Get MCP executions for confirmation-required tools
+ * This handles the actual execution after user confirmation for tools that require approval
  */
 async function getMCPExecutionsForThread(threadId: string): Promise<Record<string, any>> {
   const mcpExecutions: Record<string, any> = {};
 
   try {
-    console.log(`Loading MCP executions for thread: ${threadId}`);
+    console.log(`[MCP] Loading MCP executions for thread: ${threadId}`);
 
-    // For confirmation-required MCP tools, add their execution functions here
-    // Currently our simulated MCP tools auto-execute, so no executions needed
+    // Get all MCP connections for this thread and create execution functions
+    // for any tools that require confirmation
+    
+    // For tools that were added in getMCPToolsForThread and require confirmation,
+    // we need to create corresponding execution functions here
+    
+    // The execution functions will use the mcpConnectionManager to actually
+    // call the MCP server tools after user confirmation
+
+    // TODO: Query database to get MCP servers for this thread
+    // and create execution functions for confirmation-required tools
+
+    // Example of how this would work:
+    /*
+    if (env?.DB) {
+      const mcpServers = await getMCPServersForThread(threadId, env.DB);
+      
+      for (const server of mcpServers) {
+        const connection = mcpConnectionManager.getConnectionStatus(server.id);
+        if (connection?.status === "connected") {
+          for (const tool of connection.tools) {
+            if (tool.requiresConfirmation) {
+              const executionName = `mcp_${tool.serverId}_${tool.name}`;
+              mcpExecutions[executionName] = createMCPExecutionWrapper(tool);
+            }
+          }
+        }
+      }
+    }
+    */
 
   } catch (error) {
-    console.error("Error loading MCP executions:", error);
+    console.error("[MCP] Error loading MCP executions:", error);
   }
 
+  console.log(`[MCP] Loaded ${Object.keys(mcpExecutions).length} MCP execution handlers for thread ${threadId}`);
   return mcpExecutions;
 }
 

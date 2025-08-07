@@ -222,9 +222,12 @@ export class Chat extends AIChatAgent<Env> {
     const toolsThreadId = this.name ? this.name.split(':')[1] || 'default' : 'default';
     console.log(`Loading tools for thread: ${toolsThreadId}`);
 
+    // Get database connection for MCP tool loading
+    const db = this.env?.DB;
+
     // Collect all tools, including thread-specific MCP tools
-    const combinedTools = await getCombinedToolsForThread(toolsThreadId);
-    const combinedExecs = await getCombinedExecutionsForThread(toolsThreadId);
+    const combinedTools = await getCombinedToolsForThread(toolsThreadId, db);
+    const combinedExecs = await getCombinedExecutionsForThread(toolsThreadId, db);
 
     const allTools = {
       ...combinedTools,

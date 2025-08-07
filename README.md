@@ -10,7 +10,9 @@ A starter template for building AI-powered chat agents using Cloudflare's Agent 
 
 - 💬 Interactive chat interface with AI
 - 🛠️ Built-in tool system with human-in-the-loop confirmation
-- 📅 Advanced task scheduling (one-time, delayed, and recurring via cron)
+- � **Model Context Protocol (MCP) integration** for external tool servers
+- 🤖 **Dynamic AI agent system** with thread-specific specialization
+- �📅 Advanced task scheduling (one-time, delayed, and recurring via cron)
 - 🌓 Dark/Light theme support
 - ⚡️ Real-time streaming responses
 - 🔄 State management and chat history
@@ -59,16 +61,40 @@ npm run deploy
 
 ```
 ├── src/
-│   ├── app.tsx        # Chat UI implementation
-│   ├── server.ts      # Chat agent logic
-│   ├── tools.ts       # Tool definitions
-│   ├── utils.ts       # Helper functions
-│   └── styles.css     # UI styling
+│   ├── app.tsx               # Chat UI implementation
+│   ├── server.ts             # Chat agent logic with MCP integration
+│   ├── tools.ts              # Tool definitions (built-in + MCP)
+│   ├── lib/
+│   │   └── mcp-connection.ts # MCP server connection manager
+│   ├── api/
+│   │   └── agents.ts         # Agent and MCP server management API
+│   ├── types/
+│   │   └── mcp.ts            # MCP and agent type definitions
+│   ├── components/           # UI components for agent management
+│   ├── utils.ts              # Helper functions
+│   └── styles.css            # UI styling
 ```
 
 ## Customization Guide
 
-### Adding New Tools
+### MCP Server Integration
+
+This starter includes a full **Model Context Protocol (MCP)** integration system that allows you to connect external tool servers:
+
+```typescript
+// MCP servers are configured via database and connect automatically
+// The system supports:
+// - WebSocket and SSE transports
+// - Authentication (API key, Basic Auth, OAuth2)
+// - Automatic tool discovery
+// - Reliability with retry logic
+// - Thread-specific tool loading based on active agents
+
+// Tools from MCP servers are automatically available alongside built-in tools
+// No additional configuration needed - just configure servers in the UI
+```
+
+### Adding New Built-in Tools
 
 Add new tools in `tools.ts` using the tool builder:
 
@@ -183,21 +209,30 @@ The chat interface is built with React and can be customized in `app.tsx`:
 
 ### Example Use Cases
 
-1. **Customer Support Agent**
+1. **Customer Support Agent with MCP Integration**
 
-   - Add tools for:
+   - Add built-in tools for:
      - Ticket creation/lookup
      - Order status checking
      - Product recommendations
      - FAQ database search
+   - Connect MCP servers for:
+     - CRM system integration
+     - Live chat transcription
+     - Knowledge base search
 
-2. **Development Assistant**
+2. **Development Assistant with GitHub MCP**
 
    - Integrate tools for:
      - Code linting
      - Git operations
      - Documentation search
      - Dependency checking
+   - Connect GitHub MCP server for:
+     - Repository management
+     - Pull request automation
+     - Issue tracking
+     - GitHub Actions workflow management
 
 3. **Data Analysis Assistant**
 
@@ -206,6 +241,10 @@ The chat interface is built with React and can be customized in `app.tsx`:
      - Data visualization
      - Statistical analysis
      - Report generation
+   - Connect database MCP servers for:
+     - Live data access
+     - Query optimization
+     - Real-time analytics
 
 4. **Personal Productivity Assistant**
 
@@ -216,20 +255,36 @@ The chat interface is built with React and can be customized in `app.tsx`:
      - Email drafting
      - Note taking
 
-5. **Scheduling Assistant**
+5. **Scheduling Assistant with MCP Math Server**
    - Build tools for:
      - One-time event scheduling using specific dates
      - Delayed task execution (e.g., "remind me in 30 minutes")
      - Recurring tasks using cron patterns
      - Task payload management
-     - Flexible scheduling patterns
+   - Connect MCP servers for:
+     - Advanced mathematical calculations
+     - Calendar system integration
+     - Time zone conversions
+     - Complex scheduling algorithms
 
 Each use case can be implemented by:
 
-1. Adding relevant tools in `tools.ts`
-2. Customizing the UI for specific interactions
-3. Extending the agent's capabilities in `server.ts`
-4. Adding any necessary external API integrations
+1. Adding relevant built-in tools in `tools.ts`
+2. **Configuring MCP servers** via the agent management UI
+3. **Creating specialized agents** with specific tool combinations
+4. Customizing the UI for specific interactions
+5. Extending the agent's capabilities in `server.ts`
+6. Adding any necessary external API integrations
+
+### MCP Server Examples
+
+The system is designed to work with any MCP-compliant server:
+
+- **Math Server**: Advanced calculations and mathematical operations
+- **GitHub Server**: Repository management, Actions, and code analysis  
+- **Database Server**: SQL queries and data analysis
+- **Calendar Server**: Scheduling and time management
+- **Custom Servers**: Build your own MCP servers for specific needs
 
 ## Learn More
 

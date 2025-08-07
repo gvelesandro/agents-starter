@@ -1,6 +1,8 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { WebSocketClientTransport } from "@modelcontextprotocol/sdk/client/websocket.js";
+import { tool } from "ai";
+import { z } from "zod";
 import type {
     MCPServerConfig,
     MCPTool,
@@ -425,17 +427,275 @@ export const mcpConnectionManager = new MCPConnectionManager();
 
 // Helper functions for server-side usage
 export async function getMCPToolsForThread(
-    threadId: string
+    threadId: string,
+    db?: any // D1Database instance
 ): Promise<Record<string, any>> {
-    // This will be implemented when we have thread-agent associations
-    // For now, return empty object
-    return {};
+    const mcpTools: Record<string, any> = {};
+    
+    if (!db) {
+        console.warn("[MCP] Database not available, cannot load thread-specific MCP tools");
+        return mcpTools;
+    }
+
+    try {
+        console.log(`[MCP] Loading database-driven MCP tools for thread: ${threadId}`);
+        
+        // Get active agents for this thread and their MCP groups
+        const threadAgents = await db.prepare(`
+            SELECT DISTINCT a.id, a.name, amg.group_id, a.user_id
+            FROM thread_agents ta
+            JOIN agents a ON ta.agent_id = a.id  
+            JOIN agent_mcp_groups amg ON a.id = amg.agent_id
+            WHERE ta.thread_id = ? AND ta.is_active = TRUE
+        `).bind(threadId).all();
+
+        // Get directly assigned MCP servers for this thread
+        const threadMCPServers = await db.prepare(`
+            SELECT mis.* FROM thread_mcp_servers tms
+            JOIN mcp_servers_independent mis ON tms.server_id = mis.id
+            WHERE tms.thread_id = ? AND tms.is_active = TRUE AND mis.is_enabled = TRUE
+        `).bind(threadId).all();
+
+        // Get MCP servers from agent groups
+        const allServerConfigs = [...threadMCPServers.results];
+        
+        if (threadAgents.results.length > 0) {
+            const groupIds = Array.from(new Set(threadAgents.results.map((agent: any) => agent.group_id)));
+            
+            if (groupIds.length > 0) {
+                const groupServers = await db.prepare(`
+                    SELECT ms.*, ms.id as server_id, ms.name as server_name, 
+                           ms.url as server_url, ms.transport, ms.auth_type,
+                           ms.user_id, ms.group_id, ms.is_enabled, ms.status
+                    FROM mcp_servers ms
+                    WHERE ms.group_id IN (${groupIds.map(() => '?').join(',')}) AND ms.is_enabled = TRUE
+                `).bind(...groupIds).all();
+                
+                allServerConfigs.push(...groupServers.results);
+            }
+        }
+
+        console.log(`[MCP] Found ${allServerConfigs.length} MCP servers for thread ${threadId}`);
+
+        // Connect to all servers and collect their tools
+        for (const serverRow of allServerConfigs) {
+            try {
+                // Convert database row to MCPServerConfig format
+                const serverConfig = {
+                    id: serverRow.id || serverRow.server_id,
+                    name: serverRow.name || serverRow.server_name,
+                    url: serverRow.url || serverRow.server_url,
+                    transport: serverRow.transport,
+                    userId: serverRow.user_id,
+                    groupId: serverRow.group_id || 'independent',
+                    auth: {
+                        type: serverRow.auth_type || 'none',
+                        // TODO: Load auth details from database if needed
+                    },
+                    status: serverRow.status || 'disconnected',
+                    isEnabled: serverRow.is_enabled,
+                    createdAt: new Date(serverRow.created_at),
+                    updatedAt: new Date(serverRow.updated_at || serverRow.created_at)
+                };
+
+                console.log(`[MCP] Attempting to connect to server: ${serverConfig.name} (${serverConfig.url})`);
+                
+                const connection = await mcpConnectionManager.connectToServer(serverConfig);
+                
+                if (connection.status === "connected" && connection.tools.length > 0) {
+                    console.log(`[MCP] Connected to ${serverConfig.name}, found ${connection.tools.length} tools`);
+                    
+                    // Convert MCP tools to the format expected by the AI system
+                    for (const mcpTool of connection.tools) {
+                        const toolName = `mcp_${mcpTool.serverId}_${mcpTool.name}`;
+                        
+                        // Convert JSON schema to Zod schema safely
+                        let zodSchema = z.object({});
+                        try {
+                            if (mcpTool.schema && mcpTool.schema.properties) {
+                                const properties: Record<string, any> = {};
+                                for (const [key, prop] of Object.entries(mcpTool.schema.properties)) {
+                                    const propDef = prop as any;
+                                    let zodType: any = z.string(); // default to string
+                                    
+                                    switch (propDef.type) {
+                                        case 'string':
+                                            zodType = z.string();
+                                            break;
+                                        case 'number':
+                                            zodType = z.number();
+                                            break;
+                                        case 'boolean':
+                                            zodType = z.boolean();
+                                            break;
+                                        case 'array':
+                                            zodType = z.array(z.any());
+                                            break;
+                                        case 'object':
+                                            zodType = z.object({});
+                                            break;
+                                        default:
+                                            zodType = z.any();
+                                    }
+                                    
+                                    // Add description if available
+                                    if (propDef.description) {
+                                        zodType = zodType.describe(propDef.description);
+                                    }
+                                    
+                                    properties[key] = zodType;
+                                }
+                                zodSchema = z.object(properties);
+                            }
+                        } catch (schemaError) {
+                            console.warn(`[MCP] Could not convert schema for tool ${toolName}:`, schemaError);
+                            zodSchema = z.object({}); // fallback to empty schema
+                        }
+                        
+                        // Create proper tool objects using the AI tool function
+                        if (mcpTool.requiresConfirmation) {
+                            // Tool requires confirmation (no execute function)
+                            mcpTools[toolName] = tool({
+                                description: mcpTool.description,
+                                parameters: zodSchema,
+                                // No execute function = requires confirmation
+                            });
+                        } else {
+                            // Auto-executing tool
+                            mcpTools[toolName] = tool({
+                                description: mcpTool.description,
+                                parameters: zodSchema,
+                                execute: async (parameters: any) => {
+                                    try {
+                                        const execution = await mcpConnectionManager.executeTool(
+                                            mcpTool.serverId,
+                                            mcpTool.name,
+                                            parameters
+                                        );
+
+                                        if (execution.error) {
+                                            console.error(`MCP tool ${mcpTool.name} failed:`, execution.error);
+                                            return `Tool temporarily unavailable: ${execution.error}`;
+                                        }
+
+                                        return execution.result;
+                                    } catch (error) {
+                                        console.error(`MCP tool execution error:`, error);
+                                        return `Tool temporarily unavailable. Please try again later.`;
+                                    }
+                                },
+                            });
+                        }
+                        
+                        console.log(`[MCP] Added tool: ${toolName} - ${mcpTool.description}`);
+                    }
+                } else {
+                    console.warn(`[MCP] Could not connect to server ${serverConfig.name}: ${connection.status}`);
+                    if (connection.lastError) {
+                        console.warn(`[MCP] Error details: ${connection.lastError}`);
+                    }
+                }
+            } catch (error) {
+                console.error(`[MCP] Failed to connect to MCP server ${serverRow.name}:`, error);
+            }
+        }
+
+    } catch (error) {
+        console.error("[MCP] Error loading database-driven MCP tools:", error);
+    }
+
+    console.log(`[MCP] Loaded ${Object.keys(mcpTools).length} database-driven MCP tools for thread ${threadId}`);
+    return mcpTools;
 }
 
 export async function getMCPExecutionsForThread(
-    threadId: string
+    threadId: string,
+    db?: any // D1Database instance
 ): Promise<Record<string, any>> {
-    // This will be implemented when we have thread-agent associations
-    // For now, return empty object
-    return {};
+    const mcpExecutions: Record<string, any> = {};
+    
+    if (!db) {
+        console.warn("[MCP] Database not available, cannot load thread-specific MCP executions");
+        return mcpExecutions;
+    }
+
+    try {
+        console.log(`[MCP] Loading database-driven MCP executions for thread: ${threadId}`);
+        
+        // Similar query logic as above, but focus on confirmation-required tools
+        const threadAgents = await db.prepare(`
+            SELECT DISTINCT a.id, a.name, amg.group_id, a.user_id
+            FROM thread_agents ta
+            JOIN agents a ON ta.agent_id = a.id  
+            JOIN agent_mcp_groups amg ON a.id = amg.agent_id
+            WHERE ta.thread_id = ? AND ta.is_active = TRUE
+        `).bind(threadId).all();
+
+        const threadMCPServers = await db.prepare(`
+            SELECT mis.* FROM thread_mcp_servers tms
+            JOIN mcp_servers_independent mis ON tms.server_id = mis.id
+            WHERE tms.thread_id = ? AND tms.is_active = TRUE AND mis.is_enabled = TRUE
+        `).bind(threadId).all();
+
+        const allServerConfigs = [...threadMCPServers.results];
+        
+        if (threadAgents.results.length > 0) {
+            const groupIds = Array.from(new Set(threadAgents.results.map((agent: any) => agent.group_id)));
+            
+            if (groupIds.length > 0) {
+                const groupServers = await db.prepare(`
+                    SELECT ms.* FROM mcp_servers ms
+                    WHERE ms.group_id IN (${groupIds.map(() => '?').join(',')}) AND ms.is_enabled = TRUE
+                `).bind(...groupIds).all();
+                
+                allServerConfigs.push(...groupServers.results);
+            }
+        }
+
+        // Check each connected server for confirmation-required tools
+        for (const serverRow of allServerConfigs) {
+            try {
+                const serverId = serverRow.id || serverRow.server_id;
+                const connection = mcpConnectionManager.getConnectionStatus(serverId);
+                
+                if (connection?.status === "connected") {
+                    for (const tool of connection.tools) {
+                        if (tool.requiresConfirmation) {
+                            const executionName = `mcp_${tool.serverId}_${tool.name}`;
+                            
+                            mcpExecutions[executionName] = async (parameters: any) => {
+                                try {
+                                    const execution = await mcpConnectionManager.executeTool(
+                                        tool.serverId,
+                                        tool.name,
+                                        parameters
+                                    );
+
+                                    if (execution.error) {
+                                        console.error(`MCP tool ${tool.name} failed:`, execution.error);
+                                        throw new Error(`Tool failed: ${execution.error}`);
+                                    }
+
+                                    return execution.result;
+                                } catch (error) {
+                                    console.error(`MCP execution error:`, error);
+                                    throw error;
+                                }
+                            };
+                            
+                            console.log(`[MCP] Added execution handler: ${executionName}`);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error(`[MCP] Error setting up executions for server ${serverRow.name}:`, error);
+            }
+        }
+
+    } catch (error) {
+        console.error("[MCP] Error loading database-driven MCP executions:", error);
+    }
+
+    console.log(`[MCP] Loaded ${Object.keys(mcpExecutions).length} database-driven MCP execution handlers for thread ${threadId}`);
+    return mcpExecutions;
 }
