@@ -1504,7 +1504,7 @@ export default function Chat() {
                   <List size={20} />
                 </Button>
               )}
-              <h1 className="text-xl font-semibold">Chat Agent</h1>
+              <h1 className="text-xl font-semibold">AI Chat</h1>
               {currentUser && (
                 <AgentQuickSelector
                   threadId={currentThreadId}
