@@ -1162,7 +1162,7 @@ export async function testIndependentMCPServer(
     }
 }
 
-// Helper function to test server connection
+// Helper function to test server connection and discover tools
 async function testServerConnection(
     serverUrl: string,
     transport: string
@@ -1176,7 +1176,7 @@ async function testServerConnection(
         };
     }
 
-    // SSE server testing
+    // SSE server testing with tool discovery
     console.log(`Testing SSE connection to: ${serverUrl}`);
 
     // Validate URL
@@ -1197,41 +1197,83 @@ async function testServerConnection(
         if (urlObj.hostname !== 'localhost' && urlObj.hostname !== '127.0.0.1') {
             console.log(`Testing external MCP server: ${serverUrl}`);
 
-            // Simple connectivity test for external servers
-            const connectivityTest = await Promise.race([
-                fetch(serverUrl, {
-                    method: 'GET',
-                    headers: {
-                        'Accept': 'text/event-stream',
-                        'User-Agent': 'MCP-Agent/1.0'
+            // Try to discover tools for external servers too
+            try {
+                const toolsResult = await discoverMCPTools(serverUrl);
+                if (toolsResult.success) {
+                    return {
+                        success: true,
+                        message: `✅ External MCP server connected successfully. Found ${toolsResult.tools.length} tools.`,
+                        tools: toolsResult.tools
+                    };
+                } else {
+                    // Fall back to simple connectivity test
+                    const connectivityTest = await Promise.race([
+                        fetch(serverUrl, {
+                            method: 'GET',
+                            headers: {
+                                'Accept': 'text/event-stream',
+                                'User-Agent': 'MCP-Agent/1.0'
+                            }
+                        }),
+                        new Promise<Response>((_, reject) =>
+                            setTimeout(() => reject(new Error("Connection timeout after 8 seconds")), 8000)
+                        )
+                    ]);
+
+                    console.log(`External server response: ${connectivityTest.status} ${connectivityTest.statusText}`);
+
+                    if (connectivityTest.status === 200 || connectivityTest.status === 302) {
+                        return {
+                            success: true,
+                            message: `⚠️ External MCP server is reachable but tool discovery failed: ${toolsResult.error}`,
+                            tools: []
+                        };
+                    } else {
+                        return {
+                            success: false,
+                            message: `External server returned status ${connectivityTest.status} ${connectivityTest.statusText}`,
+                            tools: []
+                        };
                     }
-                }),
-                new Promise<Response>((_, reject) =>
-                    setTimeout(() => reject(new Error("Connection timeout after 8 seconds")), 8000)
-                )
-            ]);
-
-            console.log(`External server response: ${connectivityTest.status} ${connectivityTest.statusText}`);
-
-            if (connectivityTest.status === 200 || connectivityTest.status === 302) {
-                return {
-                    success: true,
-                    message: `✅ External MCP server is reachable and responding (Status: ${connectivityTest.status}).`,
-                    tools: []
-                };
-            } else {
+                }
+            } catch (error) {
                 return {
                     success: false,
-                    message: `External server returned status ${connectivityTest.status} ${connectivityTest.statusText}`,
+                    message: `Failed to connect to external server: ${error instanceof Error ? error.message : 'Unknown error'}`,
                     tools: []
                 };
             }
         }
 
-        // Step 1: Initial SSE handshake with timeout (for local servers)
-        console.log(`Step 1: Making initial request to: ${serverUrl}`);
-        console.log(`Request headers: Accept: text/event-stream, Cache-Control: no-cache`);
+        // For local servers, try full MCP protocol with tool discovery
+        console.log(`Testing local MCP server with full protocol: ${serverUrl}`);
         
+        const toolsResult = await discoverMCPTools(serverUrl);
+        if (toolsResult.success) {
+            return {
+                success: true,
+                message: `✅ MCP server connected successfully! Found ${toolsResult.tools.length} tools: ${toolsResult.tools.join(', ')}`,
+                tools: toolsResult.tools
+            };
+        }
+
+        // Try MCP SDK approach as fallback
+        console.log(`Custom discovery failed, trying MCP SDK approach...`);
+        try {
+            const sdkResult = await testWithMCPSDK(serverUrl);
+            if (sdkResult.success) {
+                return {
+                    success: true,
+                    message: `✅ MCP server connected via SDK! Found ${sdkResult.tools.length} tools: ${sdkResult.tools.join(', ')}`,
+                    tools: sdkResult.tools
+                };
+            }
+        } catch (sdkError) {
+            console.log(`MCP SDK test also failed:`, sdkError);
+        }        // Fall back to basic connectivity test if tool discovery fails
+        console.log(`Tool discovery failed (${toolsResult.error}), falling back to basic connectivity test...`);
+
         const handshakeResponse = await Promise.race([
             fetch(serverUrl, {
                 method: 'GET',
@@ -1253,14 +1295,12 @@ async function testServerConnection(
 
         console.log(`Handshake response status: ${handshakeResponse.status} ${handshakeResponse.statusText}`);
         console.log(`Content-Type: ${handshakeResponse.headers.get('Content-Type')}`);
-        console.log(`Cache-Control: ${handshakeResponse.headers.get('Cache-Control')}`);
-        console.log(`Access-Control-Allow-Origin: ${handshakeResponse.headers.get('Access-Control-Allow-Origin')}`);
 
         if (!handshakeResponse.ok) {
             if (handshakeResponse.status === 406) {
                 return {
                     success: false,
-                    message: `Server returned 406 Not Acceptable - this usually means the server doesn't support SSE or requires different headers. Check if your MCP server is properly configured for Server-Sent Events.`,
+                    message: `Server returned 406 Not Acceptable - this usually means the server doesn't support SSE or requires different headers. Tool discovery error: ${toolsResult.error}`,
                     tools: []
                 };
             } else if (handshakeResponse.status === 404) {
@@ -1272,104 +1312,32 @@ async function testServerConnection(
             } else {
                 return {
                     success: false,
-                    message: `Server returned status ${handshakeResponse.status} ${handshakeResponse.statusText}`,
+                    message: `Server returned status ${handshakeResponse.status} ${handshakeResponse.statusText}. Tool discovery error: ${toolsResult.error}`,
                     tools: []
                 };
             }
         }
 
-        // Step 2: Handle SSE response properly (don't read the full stream)
-        console.log(`Step 2: Handling SSE response...`);
-        
-        // For SSE streams, we don't want to read the entire response as it will hang
-        // Instead, check if we got a successful SSE response and close the connection
         const contentType = handshakeResponse.headers.get('Content-Type') || '';
         if (contentType.includes('text/event-stream')) {
-            console.log(`✅ Received proper SSE content type: ${contentType}`);
-            
-            // The fact that we got a 200 response with the right content type means the server is working
-            // We don't need to read the stream body for testing purposes
             return {
                 success: true,
-                message: `✅ Local MCP server is reachable and responding with SSE stream (Status: ${handshakeResponse.status}).`,
-                tools: []
-            };
-        }
-        
-        // If it's not an SSE stream, try to read a limited amount of the response
-        const responseText = await Promise.race([
-            handshakeResponse.text(),
-            new Promise<string>((_, reject) =>
-                setTimeout(() => {
-                    console.error(`TIMEOUT: Response reading timeout after 2 seconds`);
-                    reject(new Error("Response reading timeout after 2 seconds"));
-                }, 2000)
-            )
-        ]);
-        
-        console.log(`Response text length: ${responseText.length}`);
-        console.log(`Response text (first 200 chars): ${responseText.substring(0, 200)}`);
-
-        // Look for session endpoint in SSE data
-        const lines = responseText.split('\n');
-        let sessionEndpoint: string | null = null;
-
-        for (const line of lines) {
-            if (line.startsWith('data: ')) {
-                sessionEndpoint = line.substring(6).trim();
-                console.log(`Found session endpoint: ${sessionEndpoint}`);
-                break;
-            }
-        }
-
-        if (!sessionEndpoint) {
-            return {
-                success: true,
-                message: 'Server is reachable but no session endpoint provided. Basic connectivity test passed.',
+                message: `⚠️ Server is reachable via SSE but tool discovery failed: ${toolsResult.error}. Basic connectivity works.`,
                 tools: []
             };
         }
 
-        // Step 3: Test session endpoint
-        const fullSessionUrl = new URL(sessionEndpoint, serverUrl).toString();
-        console.log(`Step 2: Testing session endpoint: ${fullSessionUrl}`);
-
-        const sessionResponse = await Promise.race([
-            fetch(fullSessionUrl, {
-                method: 'GET',
-                headers: {
-                    'Accept': 'text/event-stream',
-                    'Cache-Control': 'no-cache'
-                }
-            }),
-            new Promise<Response>((_, reject) =>
-                setTimeout(() => reject(new Error("Session timeout after 5 seconds")), 5000)
-            )
-        ]);
-
-        console.log(`Session response: ${sessionResponse.status} ${sessionResponse.statusText}`);
-
-        if (sessionResponse.ok) {
-            return {
-                success: true,
-                message: `✅ SSE connection successful! Server handshake completed and session endpoint is reachable.`,
-                tools: []
-            };
-        } else {
-            return {
-                success: true,
-                message: `⚠️ Server handshake successful but session endpoint returned ${sessionResponse.status}. Basic connectivity works.`,
-                tools: []
-            };
-        }
+        return {
+            success: true,
+            message: `⚠️ Server is reachable but not using SSE protocol. Tool discovery failed: ${toolsResult.error}`,
+            tools: []
+        };
 
     } catch (error) {
         console.error("Connection error:", error);
 
-        // Handle specific error cases
         if (error instanceof Error) {
             if (error.message.includes('fetch failed')) {
-                // Local dev environment limitation
                 return {
                     success: true,
                     message: `⚠️ Cannot test from local dev environment due to network restrictions. If server works in Cloudflare playground, it should work in production.`,
@@ -1387,6 +1355,341 @@ async function testServerConnection(
         return {
             success: false,
             message: `Connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            tools: []
+        };
+    }
+}
+
+// Helper function to discover MCP tools using the full protocol
+async function discoverMCPTools(serverUrl: string): Promise<{ success: boolean; tools: string[]; error?: string }> {
+    try {
+        console.log(`=== Starting MCP Tool Discovery ===`);
+        console.log(`Server URL: ${serverUrl}`);
+
+        // Step 1: Initial handshake to get session endpoint
+        console.log(`Step 1: Initial handshake request...`);
+        const handshakeResponse = await Promise.race([
+            fetch(serverUrl, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'text/event-stream',
+                    'Accept-Encoding': 'identity',
+                    'Cache-Control': 'no-cache',
+                    'Connection': 'keep-alive',
+                    'User-Agent': 'MCP-Agent/1.0'
+                }
+            }),
+            new Promise<Response>((_, reject) =>
+                setTimeout(() => reject(new Error("Handshake timeout after 8 seconds")), 8000)
+            )
+        ]);
+
+        if (!handshakeResponse.ok) {
+            return {
+                success: false,
+                tools: [],
+                error: `Handshake failed with status ${handshakeResponse.status}`
+            };
+        }
+
+        console.log(`Step 1 completed: ${handshakeResponse.status} ${handshakeResponse.statusText}`);
+
+        // Step 2: Read initial SSE response to get session endpoint
+        const reader = handshakeResponse.body?.getReader();
+        if (!reader) {
+            return {
+                success: false,
+                tools: [],
+                error: "No response body available"
+            };
+        }
+
+        const decoder = new TextDecoder();
+        let sessionEndpoint = '';
+        let attempts = 0;
+        const maxAttempts = 10;
+
+        console.log(`Step 2: Reading SSE stream for session endpoint...`);
+
+        try {
+            while (attempts < maxAttempts) {
+                try {
+                    const readPromise = reader.read();
+                    const timeoutPromise = new Promise<{ done: boolean; value?: Uint8Array }>((_, reject) =>
+                        setTimeout(() => reject(new Error("Read timeout")), 2000)
+                    );
+
+                    const result = await Promise.race([readPromise, timeoutPromise]);
+
+                    if (result.done) break;
+
+                    const chunk = decoder.decode(result.value, { stream: true });
+                    console.log(`Received chunk (${chunk.length} chars):`, chunk);
+
+                    const lines = chunk.split('\n');
+                    for (const line of lines) {
+                        console.log(`Processing SSE line: "${line}"`);
+                        if (line.startsWith('data: ')) {
+                            const data = line.substring(6).trim();
+                            console.log(`Found data line: "${data}"`);
+
+                            // Try to parse as JSON to see if it contains session info
+                            try {
+                                const jsonData = JSON.parse(data);
+                                console.log(`Parsed JSON data:`, jsonData);
+
+                                // Check various possible session endpoint locations
+                                const possibleEndpoints = [
+                                    jsonData.session,
+                                    jsonData.sessionUrl,
+                                    jsonData.endpoint,
+                                    jsonData.url,
+                                    jsonData.path,
+                                    data // fallback to raw data
+                                ];
+
+                                for (const endpoint of possibleEndpoints) {
+                                    if (endpoint && typeof endpoint === 'string' &&
+                                        (endpoint.includes('/session') || endpoint.includes('/api') || endpoint.match(/\/[a-f0-9-]{36}$/))) {
+                                        sessionEndpoint = endpoint;
+                                        console.log(`Found session endpoint from JSON: ${sessionEndpoint}`);
+                                        break;
+                                    }
+                                }
+                            } catch (jsonError) {
+                                console.log(`Data is not JSON, treating as plain text`);
+                            }
+
+                            // Original session endpoint detection
+                            if (!sessionEndpoint && (data.includes('/sessions/') || data.includes('/session/') || data.match(/\/[a-f0-9-]{36}$/))) {
+                                sessionEndpoint = data;
+                                console.log(`Found session endpoint from plain text: ${sessionEndpoint}`);
+                            }
+                        } else if (line.startsWith('event: ')) {
+                            console.log(`Found event line: "${line}"`);
+                        } else if (line.trim()) {
+                            console.log(`Found other line: "${line}"`);
+                        }
+                    }
+
+                    if (sessionEndpoint) break;
+                    attempts++;
+                } catch (readError) {
+                    console.log(`Read attempt ${attempts + 1} failed: ${readError}`);
+                    attempts++;
+                    // Small delay before retry
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+            }
+        } catch (outerError) {
+            console.log(`Outer read error: ${outerError}`);
+        } finally {
+            // Safely release the reader lock
+            try {
+                reader.releaseLock();
+            } catch (lockError) {
+                console.log(`Reader already released or error releasing: ${lockError}`);
+            }
+        }
+
+        if (!sessionEndpoint) {
+            return {
+                success: false,
+                tools: [],
+                error: "No session endpoint found in SSE response"
+            };
+        }
+
+        // Step 3: Connect to session endpoint and perform MCP initialization
+        const fullSessionUrl = new URL(sessionEndpoint, serverUrl).toString();
+        console.log(`Step 3: Connecting to session: ${fullSessionUrl}`);
+
+        const sessionResponse = await Promise.race([
+            fetch(fullSessionUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: 1,
+                    method: 'initialize',
+                    params: {
+                        protocolVersion: '2024-11-05',
+                        capabilities: {
+                            tools: {}
+                        },
+                        clientInfo: {
+                            name: 'MCP-Agent',
+                            version: '1.0.0'
+                        }
+                    }
+                })
+            }),
+            new Promise<Response>((_, reject) =>
+                setTimeout(() => reject(new Error("Session timeout after 10 seconds")), 10000)
+            )
+        ]);
+
+        if (!sessionResponse.ok) {
+            return {
+                success: false,
+                tools: [],
+                error: `Session request failed with status ${sessionResponse.status}`
+            };
+        }
+
+        const initResponse = await sessionResponse.json() as any;
+        console.log(`Initialization response:`, JSON.stringify(initResponse, null, 2));
+
+        // Step 4: Request tools list
+        console.log(`Step 4: Requesting tools list...`);
+
+        const toolsResponse = await Promise.race([
+            fetch(fullSessionUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: 2,
+                    method: 'tools/list',
+                    params: {}
+                })
+            }),
+            new Promise<Response>((_, reject) =>
+                setTimeout(() => reject(new Error("Tools request timeout after 10 seconds")), 10000)
+            )
+        ]);
+
+        console.log(`Tools response status: ${toolsResponse.status} ${toolsResponse.statusText}`);
+
+        if (!toolsResponse.ok) {
+            // Try alternative tools request format
+            console.log(`Standard tools request failed, trying alternative format...`);
+
+            const altToolsResponse = await Promise.race([
+                fetch(fullSessionUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: 2,
+                        method: 'list_tools',
+                        params: {}
+                    })
+                }),
+                new Promise<Response>((_, reject) =>
+                    setTimeout(() => reject(new Error("Alternative tools request timeout after 5 seconds")), 5000)
+                )
+            ]);
+
+            if (!altToolsResponse.ok) {
+                return {
+                    success: false,
+                    tools: [],
+                    error: `Both tools requests failed: ${toolsResponse.status} and ${altToolsResponse.status}`
+                };
+            }
+
+            const altToolsResult = await altToolsResponse.json() as any;
+            console.log(`Alternative tools response:`, JSON.stringify(altToolsResult, null, 2));
+
+            const altTools = altToolsResult.result?.tools || altToolsResult.tools || [];
+            const altToolNames = altTools.map((tool: any) => tool.name || tool.tool || 'unnamed-tool');
+
+            return {
+                success: true,
+                tools: altToolNames
+            };
+        }
+
+        const toolsResult = await toolsResponse.json() as any;
+        console.log(`Tools response:`, JSON.stringify(toolsResult, null, 2));
+
+        if (toolsResult.error) {
+            return {
+                success: false,
+                tools: [],
+                error: `MCP error: ${toolsResult.error.message || JSON.stringify(toolsResult.error)}`
+            };
+        }
+
+        // Try multiple possible locations for tools in the response
+        const tools = toolsResult.result?.tools || toolsResult.tools || toolsResult.result || [];
+        console.log(`Raw tools data:`, tools);
+
+        const toolNames = Array.isArray(tools)
+            ? tools.map((tool: any) => {
+                if (typeof tool === 'string') return tool;
+                return tool.name || tool.tool || tool.id || 'unnamed-tool';
+            })
+            : [];
+
+        console.log(`=== Tool Discovery Complete ===`);
+        console.log(`Found ${toolNames.length} tools: ${toolNames.join(', ')}`);
+
+        return {
+            success: true,
+            tools: toolNames
+        };
+
+    } catch (error) {
+        console.error('Tool discovery error:', error);
+        return {
+            success: false,
+            tools: [],
+            error: error instanceof Error ? error.message : 'Unknown error during tool discovery'
+        };
+    }
+}
+
+// Alternative MCP SDK testing approach
+async function testWithMCPSDK(serverUrl: string): Promise<{ success: boolean; tools: string[] }> {
+    try {
+        console.log(`=== Testing with MCP SDK ===`);
+        console.log(`Server URL: ${serverUrl}`);
+        
+        // Dynamic import to handle potential server environment issues
+        const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+        const { SSEClientTransport } = await import('@modelcontextprotocol/sdk/client/sse.js');
+        
+        const transport = new SSEClientTransport(new URL(serverUrl));
+        const client = new Client(
+            { name: "mcp-test-agent", version: "1.0.0" },
+            { capabilities: { tools: {} } }
+        );
+
+        console.log(`Connecting with MCP SDK...`);
+        await Promise.race([
+            client.connect(transport),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error("SDK connection timeout after 8 seconds")), 8000)
+            )
+        ]);
+
+        console.log(`Connected! Listing tools...`);
+        const toolsResult = await client.listTools();
+        const toolNames = toolsResult.tools.map(tool => tool.name);
+
+        console.log(`SDK found ${toolNames.length} tools:`, toolNames);
+
+        await client.close();
+
+        return {
+            success: true,
+            tools: toolNames
+        };
+    } catch (error) {
+        console.error('MCP SDK test error:', error);
+        return {
+            success: false,
             tools: []
         };
     }

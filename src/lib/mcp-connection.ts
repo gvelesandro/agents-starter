@@ -42,7 +42,7 @@ class MCPConnectionManager {
             console.log(`[MCP] Starting connection to ${serverConfig.name}...`);
             console.log(`[MCP] Browser environment:`, typeof window !== 'undefined');
             console.log(`[MCP] URL validation:`, serverConfig.url);
-            
+
             // Validate URL
             try {
                 new URL(serverConfig.url);
@@ -70,10 +70,10 @@ class MCPConnectionManager {
                         },
                         signal: controller.signal
                     });
-                    
+
                     clearTimeout(timeoutId);
                     console.log(`[MCP] Basic connectivity test result:`, testResponse.status, testResponse.statusText);
-                    
+
                     // Don't read the response body as it's an SSE stream
                 } catch (fetchError) {
                     console.error(`[MCP] Basic connectivity test failed:`, fetchError);
@@ -113,11 +113,11 @@ class MCPConnectionManager {
             } else {
                 console.log(`[MCP] Creating SSE transport for ${serverConfig.url}`);
                 console.log(`[MCP] Headers:`, headers);
-                
+
                 try {
                     transport = new SSEClientTransport(new URL(serverConfig.url));
                     console.log(`[MCP] SSE transport created successfully`);
-                    
+
                     // SSE can use headers for auth
                     if (Object.keys(headers).length > 0) {
                         (transport as any).headers = headers;
