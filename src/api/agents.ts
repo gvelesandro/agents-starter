@@ -1203,10 +1203,25 @@ async function testServerConnection(
                 if (toolsResult.success) {
                     return {
                         success: true,
-                        message: `✅ External MCP server connected successfully. Found ${toolsResult.tools.length} tools.`,
+                        message: `✅ External MCP server connected successfully. Found ${toolsResult.tools.length} tools: ${toolsResult.tools.join(', ')}`,
                         tools: toolsResult.tools
                     };
                 } else {
+                    // Try MCP SDK approach for external servers too
+                    console.log(`External server custom discovery failed, trying MCP SDK...`);
+                    try {
+                        const sdkResult = await testWithMCPSDK(serverUrl);
+                        if (sdkResult.success) {
+                            return {
+                                success: true,
+                                message: `✅ External MCP server connected via SDK! Found ${sdkResult.tools.length} tools: ${sdkResult.tools.join(', ')}`,
+                                tools: sdkResult.tools
+                            };
+                        }
+                    } catch (sdkError) {
+                        console.log(`External MCP SDK test also failed:`, sdkError);
+                    }
+
                     // Fall back to simple connectivity test
                     const connectivityTest = await Promise.race([
                         fetch(serverUrl, {
@@ -1226,7 +1241,7 @@ async function testServerConnection(
                     if (connectivityTest.status === 200 || connectivityTest.status === 302) {
                         return {
                             success: true,
-                            message: `⚠️ External MCP server is reachable but tool discovery failed: ${toolsResult.error}`,
+                            message: `⚠️ External MCP server is reachable but both custom and SDK tool discovery failed: ${toolsResult.error}`,
                             tools: []
                         };
                     } else {
