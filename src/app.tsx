@@ -908,14 +908,22 @@ export default function Chat() {
   const [showAgentManagement, setShowAgentManagement] = useState(false);
   const [showMCPServerLibrary, setShowMCPServerLibrary] = useState(false);
   const [independentMCPServers, setIndependentMCPServers] = useState<any[]>([]);
+  const [currentMCPServers, setCurrentMCPServers] = useState<any[]>([]);
 
   // Load available agents when user loads
   useEffect(() => {
     if (currentUser?.userId) {
       loadAvailableAgents();
       loadCurrentThreadAgents();
+      loadCurrentThreadMCPServers();
       loadMcpGroups();
       loadIndependentMCPServers();
+    } else {
+      setAvailableAgents([]);
+      setCurrentAgents([]);
+      setCurrentMCPServers([]);
+      setMcpGroups([]);
+      setIndependentMCPServers([]);
     }
   }, [currentUser?.userId, currentThreadId]);
 
@@ -928,9 +936,12 @@ export default function Chat() {
         const data = await response.json() as any;
         const agents = data.agents || [];
         setAvailableAgents(Array.isArray(agents) ? agents : []);
+      } else {
+        setAvailableAgents([]);
       }
     } catch (error) {
       console.error("Failed to load available agents:", error);
+      setAvailableAgents([]);
     }
   };
 
@@ -954,6 +965,29 @@ export default function Chat() {
       }
     } catch (error) {
       console.error("Failed to load thread agents:", error);
+    }
+  };
+
+  const loadCurrentThreadMCPServers = async () => {
+    try {
+      console.log(`[FRONTEND] Loading thread MCP servers for threadId: ${currentThreadId}`);
+      const response = await fetch(`/api/threads/${currentThreadId}/mcp-servers`, {
+        credentials: 'include'
+      });
+      console.log(`[FRONTEND] Thread MCP servers response status: ${response.status}`);
+      if (response.ok) {
+        const data = await response.json() as any;
+        console.log(`[FRONTEND] Thread MCP servers response data:`, data);
+        const servers = data.servers || [];
+        console.log(`[FRONTEND] Setting current MCP servers:`, servers);
+        setCurrentMCPServers(Array.isArray(servers) ? servers : []);
+      } else {
+        console.error(`[FRONTEND] Thread MCP servers response not ok:`, response.status, response.statusText);
+        const errorText = await response.text();
+        console.error(`[FRONTEND] Thread MCP servers error response:`, errorText);
+      }
+    } catch (error) {
+      console.error("Failed to load thread MCP servers:", error);
     }
   };
 
@@ -1036,6 +1070,61 @@ export default function Chat() {
     }
   };
 
+  const handleMCPServerChange = async (servers: any[]) => {
+    console.log("MCP server change requested:", servers);
+    console.log("Current MCP servers:", currentMCPServers);
+
+    try {
+      // Find servers that were added (in new list but not in current)
+      const addedServers = servers.filter(server =>
+        !currentMCPServers.some(current => current.id === server.id)
+      );
+
+      // Find servers that were removed (in current but not in new list)
+      const removedServers = currentMCPServers.filter(current =>
+        !servers.some(server => server.id === current.id)
+      );
+
+      console.log("MCP servers to add:", addedServers);
+      console.log("MCP servers to remove:", removedServers);
+
+      // Add new MCP servers
+      for (const server of addedServers) {
+        const response = await fetch(`/api/threads/${currentThreadId}/mcp-servers`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: 'include',
+          body: JSON.stringify({
+            serverId: server.id,
+            reason: "Added via server selector"
+          }),
+        });
+        if (!response.ok) {
+          console.error("Failed to add MCP server:", response.status);
+          return;
+        }
+      }
+
+      // Remove MCP servers
+      for (const server of removedServers) {
+        const response = await fetch(`/api/threads/${currentThreadId}/mcp-servers/${server.id}`, {
+          method: "DELETE",
+          credentials: 'include'
+        });
+        if (!response.ok) {
+          console.error("Failed to remove MCP server:", response.status);
+          return;
+        }
+      }
+
+      // Update local state
+      setCurrentMCPServers(servers);
+      console.log("MCP server change completed successfully");
+    } catch (error) {
+      console.error("Failed to update thread MCP servers:", error);
+    }
+  };
+
   const handleCreateAgent = async (agentData: any) => {
     try {
       const response = await fetch("/api/agents", {
@@ -1063,6 +1152,7 @@ export default function Chat() {
       if (response.ok) {
         loadAvailableAgents();
         loadCurrentThreadAgents();
+        loadCurrentThreadMCPServers();
       }
     } catch (error) {
       console.error("Failed to update agent:", error);
@@ -1078,6 +1168,7 @@ export default function Chat() {
       if (response.ok) {
         loadAvailableAgents();
         loadCurrentThreadAgents();
+        loadCurrentThreadMCPServers();
       }
     } catch (error) {
       console.error("Failed to delete agent:", error);
@@ -1250,6 +1341,8 @@ export default function Chat() {
       .then((data: any) => {
         if (data && data.username) {
           setCurrentUser(data);
+        } else {
+          setCurrentUser(null);
         }
       })
       .catch((error) => {
@@ -1412,12 +1505,15 @@ export default function Chat() {
                 </Button>
               )}
               <h1 className="text-xl font-semibold">Chat Agent</h1>
-              {currentUser && availableAgents.length > 0 && (
+              {currentUser && (
                 <AgentQuickSelector
                   threadId={currentThreadId}
                   currentAgents={currentAgents}
                   availableAgents={availableAgents}
+                  availableMCPServers={independentMCPServers}
+                  currentMCPServers={currentMCPServers}
                   onAgentChange={handleAgentChange}
+                  onMCPServerChange={handleMCPServerChange}
                   onManageAgents={() => setShowAgentManagement(true)}
                   onManageMCPServers={() => setShowMCPServerLibrary(true)}
                 />

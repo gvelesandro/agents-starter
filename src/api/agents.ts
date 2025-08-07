@@ -31,6 +31,11 @@ const addAgentToThreadSchema = z.object({
     reason: z.string().optional(),
 });
 
+const addMCPServerToThreadSchema = z.object({
+    serverId: z.string(),
+    reason: z.string().optional(),
+});
+
 const createMCPServerSchema = z.object({
     name: z.string().min(1).max(50),
     url: z.string().url(),
@@ -524,6 +529,174 @@ export async function removeAgentFromThread(
         console.error("Error removing agent from thread:", error);
         return new Response(
             JSON.stringify({ error: "Failed to remove agent from thread" }),
+            {
+                status: 500,
+                headers: { "Content-Type": "application/json" },
+            }
+        );
+    }
+}
+
+// Thread-MCP Server Management
+export async function getThreadMCPServers(
+    env: Env,
+    threadId: string
+): Promise<Response> {
+    try {
+        const userId = getUserId();
+        const db = env.DB;
+
+        console.log(`[API] Loading thread MCP servers for threadId: ${threadId}, userId: ${userId}`);
+
+        const threadServers = await db
+            .prepare(
+                `
+      SELECT tms.server_id, tms.added_at, tms.added_reason, 
+             mis.name, mis.description, mis.url, mis.transport, mis.auth_type,
+             mis.is_enabled, mis.status, mis.tools, mis.last_tested,
+             mis.created_at, mis.updated_at
+      FROM thread_mcp_servers tms
+      JOIN mcp_servers_independent mis ON tms.server_id = mis.id
+      WHERE tms.thread_id = ? AND tms.user_id = ? AND tms.is_active = TRUE
+        AND tms.added_at = (
+          SELECT MAX(tms2.added_at) 
+          FROM thread_mcp_servers tms2 
+          WHERE tms2.server_id = tms.server_id 
+            AND tms2.thread_id = tms.thread_id 
+            AND tms2.user_id = tms.user_id 
+            AND tms2.is_active = TRUE
+        )
+      ORDER BY tms.added_at ASC
+    `
+            )
+            .bind(threadId, userId)
+            .all();
+
+        console.log(`[API] Thread MCP servers query results:`, threadServers.results);
+
+        const activeServers = threadServers.results.map((ts: any) => ({
+            id: ts.server_id,
+            name: ts.name,
+            description: ts.description,
+            url: ts.url,
+            transport: ts.transport,
+            authType: ts.auth_type,
+            isEnabled: ts.is_enabled,
+            status: ts.status,
+            tools: ts.tools ? JSON.parse(ts.tools) : [],
+            lastTested: ts.last_tested ? new Date(ts.last_tested) : undefined,
+            createdAt: new Date(ts.created_at),
+            updatedAt: new Date(ts.updated_at),
+            userId: userId,
+            addedAt: new Date(ts.added_at),
+            addedReason: ts.added_reason,
+        }));
+
+        console.log(`[API] Processed active MCP servers:`, activeServers);
+
+        return new Response(JSON.stringify({ servers: activeServers }), {
+            headers: { "Content-Type": "application/json" },
+        });
+    } catch (error) {
+        console.error("Error fetching thread MCP servers:", error);
+        return new Response(
+            JSON.stringify({ error: "Failed to fetch thread MCP servers" }),
+            {
+                status: 500,
+                headers: { "Content-Type": "application/json" },
+            }
+        );
+    }
+}
+
+export async function addMCPServerToThread(
+    request: Request,
+    env: Env,
+    threadId: string
+): Promise<Response> {
+    try {
+        const userId = getUserId();
+        const data = await parseJsonBody(request, addMCPServerToThreadSchema);
+        const db = env.DB;
+
+        const assignmentId = uuidv4();
+        const now = new Date().toISOString();
+
+        // Add MCP server to thread
+        await db
+            .prepare(
+                `
+      INSERT INTO thread_mcp_servers (id, thread_id, server_id, user_id, added_reason, added_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `
+            )
+            .bind(
+                assignmentId,
+                threadId,
+                data.serverId,
+                userId,
+                data.reason || null,
+                now
+            )
+            .run();
+
+        return new Response(
+            JSON.stringify({ message: "MCP server added to thread successfully" }),
+            {
+                status: 201,
+                headers: { "Content-Type": "application/json" },
+            }
+        );
+    } catch (error) {
+        console.error("Error adding MCP server to thread:", error);
+        return new Response(
+            JSON.stringify({
+                error:
+                    error instanceof z.ZodError
+                        ? "Invalid request data"
+                        : "Failed to add MCP server to thread",
+            }),
+            {
+                status: error instanceof z.ZodError ? 400 : 500,
+                headers: { "Content-Type": "application/json" },
+            }
+        );
+    }
+}
+
+export async function removeMCPServerFromThread(
+    env: Env,
+    threadId: string,
+    serverId: string
+): Promise<Response> {
+    try {
+        const userId = getUserId();
+        const db = env.DB;
+
+        const now = new Date().toISOString();
+
+        // Mark MCP server as inactive in thread (soft delete)
+        await db
+            .prepare(
+                `
+      UPDATE thread_mcp_servers 
+      SET is_active = FALSE, removed_at = ?
+      WHERE thread_id = ? AND server_id = ? AND user_id = ? AND is_active = TRUE
+    `
+            )
+            .bind(now, threadId, serverId, userId)
+            .run();
+
+        return new Response(
+            JSON.stringify({ message: "MCP server removed from thread successfully" }),
+            {
+                headers: { "Content-Type": "application/json" },
+            }
+        );
+    } catch (error) {
+        console.error("Error removing MCP server from thread:", error);
+        return new Response(
+            JSON.stringify({ error: "Failed to remove MCP server from thread" }),
             {
                 status: 500,
                 headers: { "Content-Type": "application/json" },
@@ -1263,7 +1436,7 @@ async function testServerConnection(
 
         // For local servers, try full MCP protocol with tool discovery
         console.log(`Testing local MCP server with full protocol: ${serverUrl}`);
-        
+
         const toolsResult = await discoverMCPTools(serverUrl);
         if (toolsResult.success) {
             return {
@@ -1670,11 +1843,11 @@ async function testWithMCPSDK(serverUrl: string): Promise<{ success: boolean; to
     try {
         console.log(`=== Testing with MCP SDK ===`);
         console.log(`Server URL: ${serverUrl}`);
-        
+
         // Dynamic import to handle potential server environment issues
         const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
         const { SSEClientTransport } = await import('@modelcontextprotocol/sdk/client/sse.js');
-        
+
         const transport = new SSEClientTransport(new URL(serverUrl));
         const client = new Client(
             { name: "mcp-test-agent", version: "1.0.0" },
@@ -1684,7 +1857,7 @@ async function testWithMCPSDK(serverUrl: string): Promise<{ success: boolean; to
         console.log(`Connecting with MCP SDK...`);
         await Promise.race([
             client.connect(transport),
-            new Promise((_, reject) => 
+            new Promise((_, reject) =>
                 setTimeout(() => reject(new Error("SDK connection timeout after 8 seconds")), 8000)
             )
         ]);

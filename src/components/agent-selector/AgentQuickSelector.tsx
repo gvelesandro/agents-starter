@@ -1,12 +1,15 @@
 import React, { useState, useRef, useEffect } from "react";
 import { CaretDown, User, Plus } from "@phosphor-icons/react";
-import type { Agent } from "../../types/mcp";
+import type { Agent, IndependentMCPServer } from "../../types/mcp";
 
 interface AgentQuickSelectorProps {
     threadId: string;
     currentAgents: Agent[];
     availableAgents: Agent[];
+    availableMCPServers?: IndependentMCPServer[];
+    currentMCPServers?: IndependentMCPServer[];
     onAgentChange: (agents: Agent[]) => void;
+    onMCPServerChange?: (servers: IndependentMCPServer[]) => void;
     onManageAgents: () => void;
     onManageMCPServers?: () => void;
     className?: string;
@@ -16,7 +19,10 @@ export const AgentQuickSelector: React.FC<AgentQuickSelectorProps> = ({
     threadId,
     currentAgents,
     availableAgents,
+    availableMCPServers = [],
+    currentMCPServers = [],
     onAgentChange,
+    onMCPServerChange,
     onManageAgents,
     onManageMCPServers,
     className = "",
@@ -53,13 +59,45 @@ export const AgentQuickSelector: React.FC<AgentQuickSelectorProps> = ({
         }
     };
 
-    const getDisplayText = () => {
-        if (currentAgents.length === 0) {
-            return "No agents";
-        } else if (currentAgents.length === 1) {
-            return currentAgents[0].name;
+    const handleMCPServerToggle = (server: IndependentMCPServer) => {
+        if (!onMCPServerChange) return;
+
+        const isCurrentlyActive = currentMCPServers.some((s) => s.id === server.id);
+
+        if (isCurrentlyActive) {
+            // Remove MCP server
+            const updatedServers = currentMCPServers.filter((s) => s.id !== server.id);
+            onMCPServerChange(updatedServers);
         } else {
-            return `${currentAgents.length} agents`;
+            // Add MCP server
+            const updatedServers = [...currentMCPServers, server];
+            onMCPServerChange(updatedServers);
+        }
+    };
+
+    const getDisplayText = () => {
+        const totalActive = currentAgents.length + currentMCPServers.length;
+        const totalAvailable = availableAgents.length + availableMCPServers.length;
+
+        if (totalActive === 0) {
+            return totalAvailable > 0
+                ? "Select agent or MCP server"
+                : "No agents or servers available";
+        } else if (totalActive === 1) {
+            if (currentAgents.length === 1) {
+                return currentAgents[0].name;
+            } else {
+                return currentMCPServers[0].name;
+            }
+        } else {
+            const parts = [];
+            if (currentAgents.length > 0) {
+                parts.push(`${currentAgents.length} agent${currentAgents.length > 1 ? 's' : ''}`);
+            }
+            if (currentMCPServers.length > 0) {
+                parts.push(`${currentMCPServers.length} server${currentMCPServers.length > 1 ? 's' : ''}`);
+            }
+            return parts.join(', ');
         }
     };
 
@@ -133,42 +171,129 @@ export const AgentQuickSelector: React.FC<AgentQuickSelectorProps> = ({
                             </>
                         )}
 
-                        {/* Available Agents Section */}
-                        <div className="px-3 py-2 text-xs font-medium text-gray-500 dark:text-neutral-400 uppercase tracking-wider">
-                            Available Agents
-                        </div>
-
-                        {availableAgents
-                            .filter((agent) => !currentAgents.some((a) => a.id === agent.id))
-                            .map((agent) => (
-                                <button
-                                    key={agent.id}
-                                    onClick={() => handleAgentToggle(agent)}
-                                    className="w-full flex items-center space-x-3 px-3 py-2 hover:bg-gray-50 dark:hover:bg-neutral-700 text-left"
-                                >
+                        {/* Current MCP Servers Section */}
+                        {currentMCPServers.length > 0 && (
+                            <>
+                                <div className="px-3 py-2 text-xs font-medium text-gray-500 dark:text-neutral-400 uppercase tracking-wider">
+                                    Active MCP Servers
+                                </div>
+                                {currentMCPServers.map((server) => (
                                     <div
-                                        className={`w-3 h-3 rounded-full ${getAgentStatusColor(agent).split(" ")[0]} ${getAgentStatusColor(agent).split(" ")[1]}`}
-                                    />
-                                    <div className="flex-1 min-w-0">
-                                        <div className="text-sm font-medium text-gray-900 dark:text-neutral-100">
-                                            {agent.name}
-                                        </div>
-                                        {agent.description && (
-                                            <div className="text-xs text-gray-500 dark:text-neutral-400 truncate">
-                                                {agent.description}
+                                        key={server.id}
+                                        className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 dark:hover:bg-neutral-700"
+                                    >
+                                        <div className="flex items-center space-x-3">
+                                            <div className={`w-3 h-3 rounded-full ${server.status === 'connected' ? 'bg-green-500' :
+                                                    server.status === 'error' ? 'bg-red-500' :
+                                                        server.status === 'disconnected' ? 'bg-gray-400' :
+                                                            'bg-yellow-500'
+                                                }`} />
+                                            <div>
+                                                <div className="text-sm font-medium text-gray-900 dark:text-neutral-100">
+                                                    {server.name}
+                                                </div>
+                                                {server.description && (
+                                                    <div className="text-xs text-gray-500 dark:text-neutral-400 truncate max-w-48">
+                                                        {server.description}
+                                                    </div>
+                                                )}
+                                                <div className="text-xs text-gray-400 dark:text-neutral-500">
+                                                    {server.transport} • {server.tools?.length || 0} tools
+                                                </div>
                                             </div>
-                                        )}
-                                        <div className="text-xs text-gray-400 dark:text-neutral-500">
-                                            {agent.mcpGroupIds.length} tool group
-                                            {agent.mcpGroupIds.length !== 1 ? "s" : ""}
                                         </div>
+                                        <button
+                                            onClick={() => handleMCPServerToggle(server)}
+                                            className="text-xs text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 font-medium"
+                                        >
+                                            Remove
+                                        </button>
                                     </div>
-                                    <Plus className="h-4 w-4 text-gray-400 dark:text-neutral-500" />
-                                </button>
-                            ))}
+                                ))}
+                                <div className="border-t border-gray-100 dark:border-neutral-600 my-2" />
+                            </>
+                        )}
 
-                        {/* Manage Agents Link */}
-                        <div className="border-t border-gray-100 dark:border-neutral-600 mt-2">
+                        {/* Available Agents Section */}
+                        {availableAgents.filter((agent) => !currentAgents.some((a) => a.id === agent.id)).length > 0 && (
+                            <>
+                                <div className="px-3 py-2 text-xs font-medium text-gray-500 dark:text-neutral-400 uppercase tracking-wider">
+                                    Available Agents
+                                </div>
+
+                                {availableAgents
+                                    .filter((agent) => !currentAgents.some((a) => a.id === agent.id))
+                                    .map((agent) => (
+                                        <button
+                                            key={agent.id}
+                                            onClick={() => handleAgentToggle(agent)}
+                                            className="w-full flex items-center space-x-3 px-3 py-2 hover:bg-gray-50 dark:hover:bg-neutral-700 text-left"
+                                        >
+                                            <div
+                                                className={`w-3 h-3 rounded-full ${getAgentStatusColor(agent).split(" ")[0]} ${getAgentStatusColor(agent).split(" ")[1]}`}
+                                            />
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-sm font-medium text-gray-900 dark:text-neutral-100">
+                                                    {agent.name}
+                                                </div>
+                                                {agent.description && (
+                                                    <div className="text-xs text-gray-500 dark:text-neutral-400 truncate">
+                                                        {agent.description}
+                                                    </div>
+                                                )}
+                                                <div className="text-xs text-gray-400 dark:text-neutral-500">
+                                                    {agent.mcpGroupIds.length} tool group
+                                                    {agent.mcpGroupIds.length !== 1 ? "s" : ""}
+                                                </div>
+                                            </div>
+                                            <Plus className="h-4 w-4 text-gray-400 dark:text-neutral-500" />
+                                        </button>
+                                    ))}
+                                <div className="border-t border-gray-100 dark:border-neutral-600 my-2" />
+                            </>
+                        )}
+
+                        {/* Available MCP Servers Section */}
+                        {availableMCPServers.length > 0 && (
+                            <>
+                                <div className="px-3 py-2 text-xs font-medium text-gray-500 dark:text-neutral-400 uppercase tracking-wider">
+                                    Individual MCP Servers
+                                </div>
+                                {availableMCPServers
+                                    .filter((server) => server.isEnabled && !currentMCPServers.some((s) => s.id === server.id))
+                                    .map((server) => (
+                                        <button
+                                            key={server.id}
+                                            onClick={() => handleMCPServerToggle(server)}
+                                            className="w-full flex items-center space-x-3 px-3 py-2 hover:bg-gray-50 dark:hover:bg-neutral-700 text-left"
+                                        >
+                                            <div className={`w-3 h-3 rounded-full ${server.status === 'connected' ? 'bg-green-500' :
+                                                    server.status === 'error' ? 'bg-red-500' :
+                                                        server.status === 'disconnected' ? 'bg-gray-400' :
+                                                            'bg-yellow-500'
+                                                }`} />
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-sm font-medium text-gray-900 dark:text-neutral-100">
+                                                    {server.name}
+                                                </div>
+                                                {server.description && (
+                                                    <div className="text-xs text-gray-500 dark:text-neutral-400 truncate">
+                                                        {server.description}
+                                                    </div>
+                                                )}
+                                                <div className="text-xs text-gray-400 dark:text-neutral-500">
+                                                    {server.transport} • {server.tools?.length || 0} tools
+                                                </div>
+                                            </div>
+                                            <Plus className="h-4 w-4 text-gray-400 dark:text-neutral-500" />
+                                        </button>
+                                    ))}
+                                <div className="border-t border-gray-100 dark:border-neutral-600 my-2" />
+                            </>
+                        )}
+
+                        {/* Management Links */}
+                        <div>
                             <button
                                 onClick={() => {
                                     setIsOpen(false);
@@ -179,6 +304,7 @@ export const AgentQuickSelector: React.FC<AgentQuickSelectorProps> = ({
                                 <Plus className="h-4 w-4" />
                                 <span>Manage Agents</span>
                             </button>
+
                             {onManageMCPServers && (
                                 <button
                                     onClick={() => {
@@ -190,6 +316,14 @@ export const AgentQuickSelector: React.FC<AgentQuickSelectorProps> = ({
                                     <Plus className="h-4 w-4" />
                                     <span>MCP Server Library</span>
                                 </button>
+                            )}
+
+                            {/* Show a message when no agents or servers are available */}
+                            {availableAgents.length === 0 && availableMCPServers.length === 0 && (
+                                <div className="px-3 py-4 text-center text-sm text-gray-500 dark:text-neutral-400">
+                                    <div className="mb-2">No agents or MCP servers configured</div>
+                                    <div className="text-xs">Create your first agent or add an MCP server to get started</div>
+                                </div>
                             )}
                         </div>
                     </div>

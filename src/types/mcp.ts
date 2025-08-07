@@ -48,21 +48,30 @@ export interface MCPServerConfig {
             clientId: string;
             authUrl: string;
             tokenUrl: string;
-            scopes: string[];
-            accessToken?: string; // Encrypted
-            refreshToken?: string; // Encrypted
-            expiresAt?: Date;
+            scopes?: string[];
         };
         customHeaders?: Record<string, string>;
     };
-    status:
-    | "connected"
-    | "disconnected"
-    | "error"
-    | "authenticating"
-    | "pending_auth";
+    status: "connected" | "disconnected" | "error" | "authenticating" | "pending_auth";
     isEnabled: boolean;
-    lastConnected?: Date;
+    tools?: string[];
+    lastTested?: Date;
+    createdAt: Date;
+    updatedAt: Date;
+}
+
+export interface IndependentMCPServer {
+    id: string;
+    name: string;
+    description?: string;
+    url: string;
+    transport: "websocket" | "sse";
+    authType: "none" | "apikey" | "basic" | "oauth2" | "custom";
+    authConfig?: any;
+    isEnabled: boolean;
+    status?: "connected" | "disconnected" | "error" | "authenticating" | "pending_auth";
+    tools?: string[];
+    lastTested?: Date;
     createdAt: Date;
     updatedAt: Date;
 }

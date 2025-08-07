@@ -1135,6 +1135,31 @@ export default {
         return agentAPI.removeAgentFromThread(env, threadId, agentId);
       }
 
+      // Thread-MCP server routes
+      if (
+        url.pathname.match(/^\/api\/threads\/[^\/]+\/mcp-servers$/) &&
+        request.method === "GET"
+      ) {
+        const threadId = url.pathname.split("/")[3];
+        return agentAPI.getThreadMCPServers(env, threadId);
+      }
+      if (
+        url.pathname.match(/^\/api\/threads\/[^\/]+\/mcp-servers$/) &&
+        request.method === "POST"
+      ) {
+        const threadId = url.pathname.split("/")[3];
+        return agentAPI.addMCPServerToThread(request, env, threadId);
+      }
+      if (
+        url.pathname.match(/^\/api\/threads\/[^\/]+\/mcp-servers\/[^\/]+$/) &&
+        request.method === "DELETE"
+      ) {
+        const pathParts = url.pathname.split("/");
+        const threadId = pathParts[3];
+        const serverId = pathParts[5];
+        return agentAPI.removeMCPServerFromThread(env, threadId, serverId);
+      }
+
       // MCP group routes
       if (url.pathname === "/api/mcp-groups" && request.method === "GET") {
         return agentAPI.getMCPGroups(env);

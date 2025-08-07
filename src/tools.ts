@@ -279,11 +279,11 @@ The workflow has been queued and will start running shortly.
     });
 
     // Add the MCP tools with prefixed names to avoid conflicts
-    mcpTools["mcpMathAdd"] = mathAdd;
-    mcpTools["mcpMathCalculate"] = mathCalculate;
-    mcpTools["mcpGithubGetRepository"] = githubGetRepository;
-    mcpTools["mcpGithubListActions"] = githubListActions;
-    mcpTools["mcpGithubTriggerAction"] = githubTriggerAction;
+    // mcpTools["mcpMathAdd"] = mathAdd;
+    // mcpTools["mcpMathCalculate"] = mathCalculate;
+    // mcpTools["mcpGithubGetRepository"] = githubGetRepository;
+    // mcpTools["mcpGithubListActions"] = githubListActions;
+    // mcpTools["mcpGithubTriggerAction"] = githubTriggerAction;
 
   } catch (error) {
     console.error("Error loading MCP tools:", error);
